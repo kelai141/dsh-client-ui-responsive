@@ -1,22 +1,15 @@
-# @dsh-android/dsh-client-ui-responsive
+# dsh-client-ui-responsive
 
-Client plugin: responsive AppFrame for the Android shell — the upstream three-column frame plus a Mobile form.
+Mobile-responsive AppFrame for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
+web UI. A drop-in replacement for the upstream `ui-layout` that adds a proper **Mobile form**
+(<640px): drawer sidebar, bottom-sheet details, top bar with hamburger, and safe-area insets —
+while keeping the Wide/Narrow behavior byte-identical to upstream.
 
-## Design
+## Quick start
 
-- Derived from `@deepseek-ai/dsh-client-ui-layout` (MIT) — same DOM, same slots (`sidebar`/`conversation`/`details`/`shell.overlay`), same `ctx.layout` service face.
-- Three-tier breakpoints: **Wide ≥1024** (unchanged three columns), **Narrow 640–1024** (upstream auto-collapse rail), **Mobile <640** (new): sidebar → left drawer, details → bottom sheet, conversation full width, top bar with hamburger, safe-area insets.
-- Honest single-column semantics reuse the existing store: drawer state = sidebar preference/narrowExpanded extension; sheet = details preference mapping; overlay stays on top (z=20).
-- Compile baseline: `@deepseek-ai/*` 0.1.0-rc.6 (same as the device install). Sync upstream changes periodically; eventually contribute the mobile form back upstream.
+**1. Install** — package into the web profile's node_modules (see dsh-shell-termux for the pattern).
 
-## Build
-
-```sh
-npm install
-npm run build   # tsc (lib/types) + tsdown (lib/client.js browser bundle)
-```
-
-## Mounting (android profile patch)
+**2. Mount** — in the profile's `cordis.patch.yml`:
 
 ```yaml
 - id: ui-layout
@@ -26,7 +19,48 @@ npm run build   # tsc (lib/types) + tsdown (lib/client.js browser bundle)
       name: '@dsh-android/dsh-client-ui-responsive'
 ```
 
-## Known limitations
+**3. Restart** and verify the browser roster (`window.__DSH_BOOT__` entries contain
+`@dsh-android/dsh-client-ui-responsive`, `ui-layout` is gone).
 
-- Derived copy drifts from upstream ui-layout (sync on upstream bumps; see UPSTREAM-ITERATION.md).
-- Gestures (edge-swipe close) deferred to M1.5; drawer/sheet are tap-driven.
+## Breakpoint system
+
+| tier | width | form |
+|---|---|---|
+| Wide | ≥1024px | three columns, upstream behavior |
+| Narrow | 640–1024px | upstream auto-collapse rail + manual re-expand |
+| **Mobile** | <640px | single column: sidebar → left drawer, details → bottom sheet, top bar + hamburger, safe areas |
+
+Landscape phones (≥640 logical px) reuse the original Wide/Narrow UI unchanged.
+
+## Behavior notes
+
+- **Same slots, same services**: `sidebar`/`conversation`/`details`/`shell.overlay` and
+  `ctx.layout` are provided identically to ui-layout — consumers (ui-sidebar, ui-conversation)
+  work unchanged.
+- **Mobile state semantics**: hamburger toggles the drawer (mask tap closes); opening details via
+  `ctx.layout.openDetails()` shows the bottom sheet; `shell.overlay` stays the top layer (z 20).
+- **Rotation** is instant: the frame switches tiers via the same rAF-throttled ResizeObserver;
+  `prefers-reduced-motion` disables transitions.
+
+## Build
+
+```sh
+npm install          # baseline pinned to @deepseek-ai/* 0.1.0-rc.6
+npm run build        # tsc (lib/types) + tsdown (lib/client.js browser bundle)
+npm run typecheck
+```
+
+The browser bundle uses the `__ModuleLoader__.load` contract; rebuild before probing a live server
+(the registry serves `lib/client.js`, not sources).
+
+## Testing
+
+- Component specs: host CDP against a served page at 412px (drawer open/close, mask) and 1280px
+  (three-column regression) — see the project verification log in the coordination repo.
+- Old-kernel browsers (pre-ES2024 WebView) cannot load the client bundles; use a current WebView
+  (system WebView is fine) — the polyfill plugin helps for older kernels.
+
+## License
+
+MIT. Derived from `@deepseek-ai/dsh-client-ui-layout` (MIT, © 2026 DeepSeek) — see NOTICE.
+Design rationale: `docs/design.md`.
