@@ -1,5 +1,7 @@
 # dsh-client-ui-responsive
 
+> **dsh-mobile 生态** · [dsh-mobile-apk](https://github.com/kelai141/dsh-mobile-apk)（壳 APK）· [dsh-shell-termux](https://github.com/kelai141/dsh-shell-termux)（shell）· [dsh-host-web-compat](https://github.com/kelai141/dsh-host-web-compat)（浏览器兼容）· [dsh-mobile](https://github.com/kelai141/dsh-mobile)（协调仓库，private）
+
 Mobile-responsive AppFrame for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 web UI. A drop-in replacement for the upstream `ui-layout` that adds a proper **Mobile form**
 (<640px): drawer sidebar, bottom-sheet details, top bar with hamburger, and safe-area insets —
