@@ -14,6 +14,9 @@ import { AppFrame } from './AppFrame.tsx'
 import { createLayoutStore } from './stores.ts'
 import { LayoutController } from './service.ts'
 import { ThemePresenter } from './theme-presenter.ts'
+import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
+import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
+import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
 
 // Contract exports only (export-convergence rule: cross-package consumers
 // keep a symbol exported; test-only/package-internal symbols live off /src).
@@ -141,6 +144,39 @@ export function apply(ctx: ClientContext): void {
       void disposeService()
     }
   }, 'ui-layout: service + root registration')
+
+  // Mobile settings-panel adaptation: the upstream settings modal is a
+  // fixed 800px two-column panel; below the mobile breakpoint it is
+  // re-shaped to a single column (nav strip scrolls horizontally). The
+  // upstream CSS Modules class names are hashed and unreachable from here,
+  // so the stylesheet targets the dialog's ARIA attributes instead.
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.setAttribute('data-plugin', 'mobile-settings')
+    style.textContent = MOBILE_SETTINGS_CSS
+    document.head.appendChild(style)
+    return () => { style.remove() }
+  }, 'ui-layout: mobile settings styles')
+
+  // Composer control-row narrow fix: the 176px model pill overlaps the
+  // permission pill below ~380px; cap it on phones.
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.setAttribute('data-plugin', 'composer-row')
+    style.textContent = COMPOSER_ROW_CSS
+    document.head.appendChild(style)
+    return () => { style.remove() }
+  }, 'ui-layout: composer row narrow fix')
+
+  // Composer command-menu scroll fix: the upstream menu viewport lacks
+  // flex:1, so an over-long candidate list is clipped unscrollable.
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.setAttribute('data-plugin', 'composer-menu')
+    style.textContent = COMPOSER_MENU_CSS
+    document.head.appendChild(style)
+    return () => { style.remove() }
+  }, 'ui-layout: composer menu scroll fix')
 
   // Theme presentation: pure DOM writes from resolved snapshots — initial
   // state through the getter once, then event-driven only; no React path.
