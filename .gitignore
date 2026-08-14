@@ -1,2 +1,3 @@
 node_modules/
 lib/
+`n# 敏感数据`n*.credentials.yaml`ntoken*`n*.key`n*.pem`n*.p12
