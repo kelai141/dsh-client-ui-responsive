@@ -22,6 +22,7 @@ import { createExportResultStore, type ExportResultPayload } from './export-resu
 import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
 import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
 import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
+import { SESSION_LOG_DIALOG_HIDE_CSS } from './session-log-dialog.css.ts'
 
 // Contract exports only (export-convergence rule: cross-package consumers
 // keep a symbol exported; test-only/package-internal symbols live off /src).
@@ -189,6 +190,17 @@ export function apply(ctx: ClientContext): void {
     document.head.appendChild(style)
     return () => { style.remove() }
   }, 'ui-layout: composer menu scroll fix')
+
+  // Session-log export: the shell owns the only result dialog (success/failure
+  // via window.__dshExportResult). Hide the upstream preparing/success/error
+  // modal so two dialogs never stack on Android.
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.setAttribute('data-plugin', 'session-log-dialog')
+    style.textContent = SESSION_LOG_DIALOG_HIDE_CSS
+    document.head.appendChild(style)
+    return () => { style.remove() }
+  }, 'ui-layout: hide upstream session-log dialog')
 
   // Theme presentation: pure DOM writes from resolved snapshots — initial
   // state through the getter once, then event-driven only; no React path.
