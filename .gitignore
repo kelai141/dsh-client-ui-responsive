@@ -1,3 +1,9 @@
 node_modules/
 lib/
-`n# 敏感数据`n*.credentials.yaml`ntoken*`n*.key`n*.pem`n*.p12
+*.tgz
+# 敏感数据（安全审计 2026-08-14）
+*.credentials.yaml
+token*
+*.key
+*.pem
+*.p12
