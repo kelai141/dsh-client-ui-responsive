@@ -9,6 +9,7 @@
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
+import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PanelActions } from './service.ts'
 import { AppFrame } from './AppFrame.tsx'
 import { createLayoutStore } from './stores.ts'
@@ -16,6 +17,8 @@ import { LayoutController } from './service.ts'
 import { ThemePresenter } from './theme-presenter.ts'
 import { ThemeBridge } from './theme-bridge.ts'
 import { EnterGuard } from './enter-guard.ts'
+import { ExportResultDialog } from './ExportResultDialog.tsx'
+import { createExportResultStore, type ExportResultPayload } from './export-result.ts'
 import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
 import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
 import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
@@ -27,6 +30,13 @@ import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
 // against; the frame components and the store factory are package-internal.
 export { LayoutController } from './service.ts'
 export type { ILayout } from './service.ts'
+
+declare global {
+  interface Window {
+    /** Android shell session-export outcome bridge (success / failure). */
+    __dshExportResult?: (payload: ExportResultPayload) => void
+  }
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -209,4 +219,38 @@ export function apply(ctx: ClientContext): void {
     bridge.install()
     return () => { /* the hook is global and idempotent: no teardown needed */ }
   }, 'ui-layout: theme bridge')
+
+  // Export-result dialog: the shell's session-export download finishes on a
+  // background thread and reports through window.__dshExportResult. The bridge
+  // dispatches a DOM event into the React tree; the dialog entry reads it from
+  // the store below. Registration waits on the shell.overlay declaration
+  // owned by this plugin's root entry.
+  let exportActions: BoundActions<ReturnType<typeof createExportResultStore>> | undefined
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'export-result',
+    store: createExportResultStore,
+    inject: (actions: BoundActions<ReturnType<typeof createExportResultStore>>) => {
+      exportActions = actions
+      return {}
+    },
+  }, ExportResultDialog))
+
+  ctx.effect(() => {
+    const onResult = (event: Event): void => {
+      const payload = (event as CustomEvent<ExportResultPayload>).detail
+      if (payload === null || typeof payload !== 'object') return
+      if (typeof payload.ok !== 'boolean' || typeof payload.title !== 'string' || typeof payload.detail !== 'string') return
+      exportActions?.show(payload)
+    }
+    const bridge = (payload: ExportResultPayload): void => {
+      window.dispatchEvent(new CustomEvent('dsh:export-result', { detail: payload }))
+    }
+    window.__dshExportResult = bridge
+    window.addEventListener('dsh:export-result', onResult)
+    return () => {
+      window.removeEventListener('dsh:export-result', onResult)
+      delete window.__dshExportResult
+    }
+  }, 'ui-layout: export result dialog bridge')
 }
