@@ -48,3 +48,4 @@ export const MOBILE_SETTINGS_CSS: string = `
   }
 
   [role='dialog'][aria-modal='true']:has(> nav) > nav > div:nth-child(2) > button {
+`

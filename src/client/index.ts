@@ -14,6 +14,8 @@ import { AppFrame } from './AppFrame.tsx'
 import { createLayoutStore } from './stores.ts'
 import { LayoutController } from './service.ts'
 import { ThemePresenter } from './theme-presenter.ts'
+import { ThemeBridge } from './theme-bridge.ts'
+import { EnterGuard } from './enter-guard.ts'
 import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
 import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
 import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
@@ -189,4 +191,22 @@ export function apply(ctx: ClientContext): void {
       presenter.dispose()
     }
   }, 'ui-layout: theme presenter')
+
+  // Mobile Enter guard: on the mobile form the soft-keyboard Enter key must
+  // insert a newline instead of submitting — the send button is the only
+  // send channel. Desktop and command-menu/IME paths stay untouched.
+  ctx.effect(() => {
+    const guard = new EnterGuard()
+    guard.attach()
+    return () => { guard.detach() }
+  }, 'ui-layout: mobile enter guard')
+
+  // Theme bridge: prefers-color-scheme → OS dark state on WebViews whose
+  // media query does not track uiMode (vivo/Android 16 observed). The shell
+  // pushes window.__dshThemeBridge.setDark() on Configuration changes.
+  ctx.effect(() => {
+    const bridge = new ThemeBridge()
+    bridge.install()
+    return () => { /* the hook is global and idempotent: no teardown needed */ }
+  }, 'ui-layout: theme bridge')
 }
