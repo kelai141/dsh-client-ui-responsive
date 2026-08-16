@@ -55,7 +55,8 @@ jobs:
               core.info('PR 规范检查通过 ✓（title=' + title + ' labels=' + labels.join(',') + '）')
               return
             }
-            const fatal = !problems.some(p => p.includes('label'))
+            // 标题不规范阻断（作者可控）；仅 label 问题不阻断（fork PR 无打标权限）
+            const fatal = problems.some(p => p.includes('标题')) && !isFork
             const body = '## PR 规范检查未通过\n\n- ' + problems.join('\n- ') +
               (isFork ? '\n\n（来自 fork 的 PR 无法自行打 label，请 maintainer 合并时补充）' : '') +
               '\n\n规范见 pr-guidelines。'
