@@ -1,3 +1,10 @@
+declare global {
+  interface Window {
+    /** 壳 APK 注入的同步深色查询桥（H1：首帧主题来源）。 */
+    androidBridge?: { getSystemDark?: () => boolean }
+  }
+}
+
 /**
  * ThemeBridge: make prefers-color-scheme follow the OS dark state on
  * WebViews whose media query does not track the system uiMode (observed on
@@ -18,16 +25,19 @@ export class ThemeBridge {
   install(): void {
     if (this.patched) return
     this.patched = true
+    const android = window.androidBridge as { getSystemDark?: () => boolean } | undefined
     // The shell's early-injected bridge (host-web-compat POLYFILL_SCRIPT) already
     // owns matchMedia and __dshThemeBridge by the time this client bundle loads;
     // patching again would split the ui-theme listener (first patch) from
     // setDark (this instance), so the theme would never follow. Stand down when
-    // a bridge is present and act as the fallback otherwise (desktop/web).
+    // a bridge is present.
     if ((window as unknown as { __dshThemeBridge?: unknown }).__dshThemeBridge) return
+    // L4（2026-08-16）：没有任何 setDark 来源（无早装桥、无壳的同步查询桥）时
+    // 也不安装——否则 matchMedia 被 hook 成永无更新来源的悬空桩（桌面等
+    // 非 Android 宿主），陈旧值污染后续所有 prefers-color-scheme 查询。
+    if (!android || typeof android.getSystemDark !== 'function') return
     const self = this
     const nativeMatchMedia = window.matchMedia.bind(window)
-    const proxyMatches = (query: string): boolean =>
-      query.includes('prefers-color-scheme') ? self.dark : nativeMatchMedia(query).matches
 
     // Intercept the query ui-theme constructs and listens on.
     window.matchMedia = ((query: string): MediaQueryList => {
@@ -67,10 +77,11 @@ export class ThemeBridge {
         }
       },
     }
-    // Snapshot the current OS state so the boot-rendered light page flips at once.
+    // H1（2026-08-16）：boot 快照同步拉取壳的真实 uiMode——厂商 WebView 的
+    // 原生 matchMedia 可能卡 light（vivo/Android 16），首帧即用真实值，
+    // 不再依赖 native 查询或后续异步推送。
     try {
-      const dark = nativeMatchMedia('(prefers-color-scheme: dark)').matches
-      if (dark) globalObj.__dshThemeBridge.setDark(true)
-    } catch { /* native query unavailable: stay light until the bridge pushes */ }
+      if (android.getSystemDark()) globalObj.__dshThemeBridge.setDark(true)
+    } catch { /* 桥查询不可用：保持浅色直到推送 */ }
   }
 }

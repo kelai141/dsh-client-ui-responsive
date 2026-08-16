@@ -14,8 +14,14 @@ export const DARK_ATTRIBUTE = 'data-ds-dark-theme'
 
 /** Applies theme snapshots to the document; one instance per plugin fiber. */
 export class ThemePresenter {
-  /** Token names this presenter wrote in the last apply (its retraction set). */
-  private appliedTokens: string[] = []
+  private static nextId = 0
+  /** 最后写入者标记（L3）：全局写（colorScheme/暗色属性）只由最后 apply 的
+   *  实例收回——HMR 双 fiber/多实例并存时，先 dispose 的实例不清掉后写入
+   *  者的全局状态。 */
+  private readonly uid = 'p' + ThemePresenter.nextId++
+  /** Token 变量及其写入值（L3：dispose 只回收"值仍是我写的"变量——
+   *  同名 token 被后写入者覆盖时，先 dispose 的实例不得删掉后写入者的值）。 */
+  private appliedTokens = new Map<string, string>()
   /** The single metadata node this presenter inserts and removes. */
   private readonly themeColorMeta: HTMLMetaElement
 
@@ -40,23 +46,32 @@ export class ThemePresenter {
     const body = document.body
     if (scheme === 'dark') body.setAttribute(DARK_ATTRIBUTE, '')
     else body.removeAttribute(DARK_ATTRIBUTE)
-    for (const name of this.appliedTokens) body.style.removeProperty(name)
-    this.appliedTokens = []
+    document.documentElement.dataset.dshPresenter = this.uid
+    for (const [name, value] of this.appliedTokens) {
+      if (body.style.getPropertyValue(name) === value) body.style.removeProperty(name)
+    }
+    this.appliedTokens.clear()
     for (const [name, value] of Object.entries(snapshot.active.tokens)) {
       body.style.setProperty(name, value)
-      this.appliedTokens.push(name)
+      this.appliedTokens.set(name, value)
     }
     this.themeColorMeta.content = getComputedStyle(body).backgroundColor
     if (!this.themeColorMeta.isConnected) document.head.append(this.themeColorMeta)
   }
 
-  /** Retract root color-scheme, the palette attribute, token variables, and the owned metadata node. */
+  /** Retract what this presenter wrote: global fields only when still owned
+   *  (last writer), token variables and the owned metadata node always. */
   dispose(): void {
-    document.documentElement.style.removeProperty('color-scheme')
+    if (document.documentElement.dataset.dshPresenter === this.uid) {
+      document.documentElement.style.removeProperty('color-scheme')
+      document.body.removeAttribute(DARK_ATTRIBUTE)
+      delete document.documentElement.dataset.dshPresenter
+    }
     const body = document.body
-    body.removeAttribute(DARK_ATTRIBUTE)
-    for (const name of this.appliedTokens) body.style.removeProperty(name)
-    this.appliedTokens = []
+    for (const [name, value] of this.appliedTokens) {
+      if (body.style.getPropertyValue(name) === value) body.style.removeProperty(name)
+    }
+    this.appliedTokens.clear()
     this.themeColorMeta.remove()
   }
 }
