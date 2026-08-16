@@ -23,6 +23,8 @@ import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
 import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
 import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
 import { SESSION_LOG_DIALOG_HIDE_CSS } from './session-log-dialog.css.ts'
+import { DevSection } from './dev-section/DevSection.tsx'
+import { DEV_SECTION_CSS } from './dev-section/dev-section.css.ts'
 
 // Contract exports only (export-convergence rule: cross-package consumers
 // keep a symbol exported; test-only/package-internal symbols live off /src).
@@ -170,6 +172,24 @@ export function apply(ctx: ClientContext): void {
     document.head.appendChild(style)
     return () => { style.remove() }
   }, 'ui-layout: mobile settings styles')
+
+  // Developer options: a settings page on the upstream official
+  // settings.section extension point — the shell projects the nav row from
+  // the registration options, so no upstream DOM injection is needed.
+  // Android shell facilities: restart engine / reload UI / console / dev log.
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.setAttribute('data-plugin', 'dev-section')
+    style.textContent = DEV_SECTION_CSS
+    document.head.appendChild(style)
+    return () => { style.remove() }
+  }, 'ui-layout: dev section styles')
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'android-dev',
+    order: 99,
+    label: () => '开发者选项',
+  }, DevSection))
 
   // Composer control-row narrow fix: the 176px model pill overlaps the
   // permission pill below ~380px; cap it on phones.
