@@ -1,9 +1,5 @@
-declare global {
-  interface Window {
-    /** 壳 APK 注入的同步深色查询桥（H1：首帧主题来源）。 */
-    androidBridge?: { getSystemDark?: () => boolean }
-  }
-}
+// 桥类型单一事实源（含 Window.androidBridge 全局声明）。
+import type {} from './android-bridge.ts'
 
 /**
  * ThemeBridge: make prefers-color-scheme follow the OS dark state on
@@ -25,7 +21,7 @@ export class ThemeBridge {
   install(): void {
     if (this.patched) return
     this.patched = true
-    const android = window.androidBridge as { getSystemDark?: () => boolean } | undefined
+    const android = window.androidBridge
     // The shell's early-injected bridge (host-web-compat POLYFILL_SCRIPT) already
     // owns matchMedia and __dshThemeBridge by the time this client bundle loads;
     // patching again would split the ui-theme listener (first patch) from
