@@ -8,6 +8,8 @@ export interface AndroidShellBridge {
   getSystemDark?: () => boolean
   /** 重启引擎服务进程（kill + watchdog 拉起）。 */
   restartEngine?: () => void
+  /** 关闭 harness：停止引擎并回退到初始化（启动/测试）界面（不自动重启）。 */
+  shutdownToGuide?: () => void
   /** 刷新 Web UI（重载引擎页面）。 */
   reloadWebUI?: () => void
   /** 打开内置控制台（快照 bash 交互终端）。 */

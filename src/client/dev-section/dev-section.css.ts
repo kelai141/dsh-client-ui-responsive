@@ -42,6 +42,52 @@ export const DEV_SECTION_CSS: string = `
   cursor: default;
 }
 
+.dsh-dev-danger {
+  border-color: var(--dsw-alias-danger-fg, #c0392b);
+  color: var(--dsw-alias-danger-fg, #c0392b);
+}
+
+.dsh-dev-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 20px;
+}
+
+.dsh-dev-modal {
+  width: 100%;
+  max-width: 360px;
+  padding: 18px 20px;
+  border: 1px solid var(--dsw-alias-border-strong, #ccc);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-elevated, #fff);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+}
+
+.dsh-dev-modal-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #222);
+}
+
+.dsh-dev-modal-desc {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary, #666);
+}
+
+.dsh-dev-modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
 .dsh-dev-switch {
   font-size: 14px;
   color: var(--dsw-alias-label-primary, #222);
