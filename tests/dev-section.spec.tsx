@@ -9,6 +9,7 @@ import { DevSection } from '../src/client/dev-section/DevSection.tsx'
 
 type Bridge = {
   restartEngine?: () => void
+  shutdownToGuide?: () => void
   reloadWebUI?: () => void
   openConsole?: () => void
   getDevLogEnabled?: () => boolean
@@ -45,26 +46,44 @@ afterEach(async () => {
 })
 
 describe('DevSection（开发者选项设置页）', () => {
-  it('渲染三个操作按钮与日志开关', async () => {
+  it('渲染操作按钮（重启/关闭/刷新/控制台）与日志开关', async () => {
     const el = await render({})
-    expect(el.querySelector('button')?.textContent).toContain('重启引擎')
     const texts = [...el.querySelectorAll('button')].map(b => b.textContent)
+    expect(texts).toContain('重启')
+    expect(texts).toContain('关闭')
     expect(texts).toContain('刷新界面')
     expect(texts).toContain('打开控制台')
     expect(el.querySelector('input[type=checkbox]')).not.toBeNull()
   })
 
-  it('点击重启引擎调用桥并短暂禁用按钮', async () => {
+  it('重启：点击后先弹二次确认，确认后才调桥并短暂禁用按钮', async () => {
     vi.useFakeTimers()
     const restartEngine = vi.fn()
     const el = await render({ restartEngine })
-    const btn = [...el.querySelectorAll('button')].find(b => b.textContent === '重启引擎')!
+    const btn = [...el.querySelectorAll('button')].find(b => b.textContent === '重启')!
     await act(async () => { btn.click() })
+    expect(restartEngine).not.toHaveBeenCalled()
+    const confirmBtn = [...el.querySelectorAll('.dsh-dev-modal button')].find(b => b.textContent === '重启')!
+    await act(async () => { confirmBtn.click() })
     expect(restartEngine).toHaveBeenCalledOnce()
     expect(btn.hasAttribute('disabled')).toBe(true)
-    await act(async () => { vi.advanceTimersByTime(1600) })
+    await act(async () => { vi.advanceTimersByTime(2100) })
     expect(btn.hasAttribute('disabled')).toBe(false)
     vi.useRealTimers()
+  })
+
+  it('关闭：点击后弹二次确认，取消不调桥，确认调 shutdownToGuide', async () => {
+    const shutdownToGuide = vi.fn()
+    const el = await render({ shutdownToGuide })
+    const btn = [...el.querySelectorAll('button')].find(b => b.textContent === '关闭')!
+    await act(async () => { btn.click() })
+    const cancel = [...el.querySelectorAll('.dsh-dev-modal button')].find(b => b.textContent === '取消')!
+    await act(async () => { cancel.click() })
+    expect(shutdownToGuide).not.toHaveBeenCalled()
+    await act(async () => { btn.click() })
+    const confirmBtn = [...el.querySelectorAll('.dsh-dev-modal button')].find(b => b.textContent === '关闭')!
+    await act(async () => { confirmBtn.click() })
+    expect(shutdownToGuide).toHaveBeenCalledOnce()
   })
 
   it('点击刷新界面 / 打开控制台调用对应桥方法', async () => {
@@ -107,7 +126,10 @@ describe('DevSection（开发者选项设置页）', () => {
   it('桥缺失时安全降级（不抛异常，默认关）', async () => {
     const el = await render({})
     expect((el.querySelector('input[type=checkbox]') as HTMLInputElement).checked).toBe(false)
-    const btn = [...el.querySelectorAll('button')].find(b => b.textContent === '重启引擎')!
-    expect(() => btn.click()).not.toThrow()
+    const btn = [...el.querySelectorAll('button')].find(b => b.textContent === '重启')!
+    await act(async () => { btn.click() })
+    const confirmBtn = [...el.querySelectorAll('.dsh-dev-modal button')].find(b => b.textContent === '重启')!
+    await act(async () => { confirmBtn.click() })
+    expect(() => { confirmBtn.click() }).not.toThrow()
   })
 })
