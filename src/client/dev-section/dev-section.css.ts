@@ -116,6 +116,37 @@ export const DEV_SECTION_CSS: string = `
   color: var(--dsw-alias-danger-fg, #c0392b);
 }
 
+/* 深色主题兜底（#43，2026-08-18）：部分环境 --dsw-alias-bg-elevated 未定义
+ * 会回退 #fff（白底），而 label-primary 在深色下为白字 → 白底白字。
+ * 为不确定存在的 token 提供与主题一致的显式兜底。 */
+@media (prefers-color-scheme: dark) {
+  .dsh-dev-btn {
+    background: var(--dsw-alias-bg-elevated, #26262b);
+    color: var(--dsw-alias-label-primary, #f2f2f4);
+    border-color: var(--dsw-alias-border-strong, #55555c);
+  }
+  .dsh-dev-note, .dsh-dev-hint {
+    color: var(--dsw-alias-label-secondary, #c9c9cf);
+  }
+  .dsh-dev-warn {
+    color: var(--dsw-alias-danger-fg, #ff9c9c);
+  }
+  .dsh-dev-danger {
+    border-color: var(--dsw-alias-danger-fg, #ff9c9c);
+    color: var(--dsw-alias-danger-fg, #ff9c9c);
+  }
+  .dsh-dev-modal {
+    background: var(--dsw-alias-bg-elevated, #26262b);
+    border-color: var(--dsw-alias-border-strong, #55555c);
+  }
+  .dsh-dev-modal-title {
+    color: var(--dsw-alias-label-primary, #f2f2f4);
+  }
+  .dsh-dev-modal-desc {
+    color: var(--dsw-alias-label-secondary, #c9c9cf);
+  }
+}
+
 @media (max-width: 639px) {
   .dsh-dev-btn {
     flex: 1 1 calc(50% - 5px);
