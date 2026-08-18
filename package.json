@@ -1,7 +1,7 @@
 {
   "name": "@dsh-android/dsh-client-ui-responsive",
   "description": "Client plugin: responsive AppFrame derived from @deepseek-ai/dsh-client-ui-layout with a Mobile form (<640px: drawer sidebar, bottom-sheet details, top bar, safe areas)",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -44,11 +44,11 @@
   "license": "MIT",
   "private": true,
   "peerDependencies": {
-    "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-settings": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-slots": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-theme": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-invariants": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.7",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.7",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.7",
+    "@deepseek-ai/dsh-client-ui-theme": "^0.1.0-rc.7",
+    "@deepseek-ai/dsh-invariants": "^0.1.0-rc.7",
     "@deepseek-ai/cordis": "4.0.1",
     "react": "^18.2.0"
   },
