@@ -1,5 +1,7 @@
 # dsh-client-ui-responsive
 
+[🌐 中文说明 / 中文 README](README.zh.md)
+
 > **dsh-mobile 生态** · [dsh-mobile-apk](https://github.com/kelai141/dsh-mobile-apk)（壳 APK）· [dsh-shell-termux](https://github.com/kelai141/dsh-shell-termux)（shell）· [dsh-host-web-compat](https://github.com/kelai141/dsh-host-web-compat)（浏览器兼容）· [dsh-mobile](https://github.com/kelai141/dsh-mobile)（协调仓库，private）
 
 Mobile-responsive AppFrame for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
