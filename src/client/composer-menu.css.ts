@@ -11,4 +11,11 @@ export const COMPOSER_MENU_CSS: string = `
   flex: 1 1 0%;
   min-height: 0;
 }
+
+/* The upstream menu limits itself against viewport y=0. On the mobile form,
+ * the fixed top bar owns the upper part of that viewport, so the geometry
+ * guard writes a stricter cap for each open menu. */
+[data-mobile] [data-composer-card] [role='listbox'] {
+  max-height: var(--dsh-mobile-menu-max-height, 320px) !important;
+}
 `

@@ -22,6 +22,8 @@ import { createExportResultStore, type ExportResultPayload } from './export-resu
 import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
 import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
 import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
+import { COMPOSER_INSETS_CSS } from './composer-insets.css.ts'
+import { MenuViewportGuard } from './menu-viewport-guard.ts'
 import { SESSION_LOG_DIALOG_HIDE_CSS } from './session-log-dialog.css.ts'
 import { DevSection } from './dev-section/DevSection.tsx'
 import { DEV_SECTION_CSS } from './dev-section/dev-section.css.ts'
@@ -201,6 +203,15 @@ export function apply(ctx: ClientContext): void {
     return () => { style.remove() }
   }, 'ui-layout: composer row narrow fix')
 
+  // Composer insets adaptation: pad composer seat with system bottom / IME bottom.
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.setAttribute('data-plugin', 'composer-insets')
+    style.textContent = COMPOSER_INSETS_CSS
+    document.head.appendChild(style)
+    return () => { style.remove() }
+  }, 'ui-layout: composer insets adaptation')
+
   // Composer command-menu scroll fix: the upstream menu viewport lacks
   // flex:1, so an over-long candidate list is clipped unscrollable.
   ctx.effect(() => {
@@ -210,6 +221,14 @@ export function apply(ctx: ClientContext): void {
     document.head.appendChild(style)
     return () => { style.remove() }
   }, 'ui-layout: composer menu scroll fix')
+
+  // Mobile chrome occupies the top viewport edge; keep an upward-opening
+  // command menu below it rather than hiding its first rows beneath the bar.
+  ctx.effect(() => {
+    const guard = new MenuViewportGuard()
+    guard.attach()
+    return () => { guard.detach() }
+  }, 'ui-layout: mobile command menu top clearance')
 
   // Session-log export: the shell owns the only result dialog (success/failure
   // via window.__dshExportResult). Hide the upstream preparing/success/error

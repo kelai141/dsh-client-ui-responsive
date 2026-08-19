@@ -46,6 +46,45 @@ type LayoutActions = {
 }
 
 /**
+ * The complete write set (package-internal export: pure draft mutators, so
+ * columns/stores specs drive them without the runtime's module-loader; the
+ * register-time actions table below references this literal). Drag writes
+ * clamp into the panel's contract range and never cross the open/closed
+ * line; open/close transitions write 0 / the default explicitly. Below the
+ * auto-collapse breakpoint (AppFrame feeds setNarrow) the sidebar toggle
+ * flips the narrowExpanded override instead of the preference.
+ */
+export const layoutActions: LayoutActions = {
+  setSidebar: (d, px: number) => { d.sidebar = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX) },
+  setDetails: (d, px: number) => { d.details = clampWidth(px, DETAILS_MIN, DETAILS_MAX) },
+  // Narrow toggles flip only the override: the width preference survives
+  // untouched, so re-widening restores the pre-squeeze layout.
+  // Mobile toggles flip the drawer; narrow toggles flip only the
+  // override; wide toggles the width preference.
+  toggleSidebar: (d) => {
+    if (d.mobile) d.drawerOpen = !d.drawerOpen
+    else if (d.narrow) d.narrowExpanded = !d.narrowExpanded
+    else d.sidebar = d.sidebar === 0 ? SIDEBAR_DEFAULT : 0
+  },
+  // Crossing the breakpoint in either direction drops the override: the
+  // narrow default is auto-collapsed, the wide state is the preference.
+  setNarrow: (d, narrow: boolean) => {
+    if (d.narrow === narrow) return
+    d.narrow = narrow
+    d.narrowExpanded = false
+  },
+  // Crossing into mobile closes the drawer; leaving mobile keeps the
+  // state (unused in the wide form).
+  setMobile: (d, mobile: boolean) => {
+    if (d.mobile === mobile) return
+    d.mobile = mobile
+    if (mobile) d.drawerOpen = false
+  },
+  openDetails: (d) => { if (d.details === 0) d.details = DETAILS_DEFAULT },
+  closeDetails: (d) => { d.details = 0 },
+}
+
+/**
  * Create the layout panel store handle. The preference IS the width, so
  * closing a panel forgets its drag width — reopening restores the contract
  * default. Actions are the complete write set: drag writes clamp
@@ -58,35 +97,7 @@ type LayoutActions = {
 export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutActions>  {
   const handle = defineStore({
     init: (): LayoutState => ({ sidebar: SIDEBAR_DEFAULT, details: 0, narrow: false, narrowExpanded: false, mobile: false, drawerOpen: false }),
-    actions: {
-      setSidebar: (d, px: number) => { d.sidebar = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX) },
-      setDetails: (d, px: number) => { d.details = clampWidth(px, DETAILS_MIN, DETAILS_MAX) },
-      // Narrow toggles flip only the override: the width preference survives
-      // untouched, so re-widening restores the pre-squeeze layout.
-      // Mobile toggles flip the drawer; narrow toggles flip only the
-      // override; wide toggles the width preference.
-      toggleSidebar: (d) => {
-        if (d.mobile) d.drawerOpen = !d.drawerOpen
-        else if (d.narrow) d.narrowExpanded = !d.narrowExpanded
-        else d.sidebar = d.sidebar === 0 ? SIDEBAR_DEFAULT : 0
-      },
-      // Crossing the breakpoint in either direction drops the override: the
-      // narrow default is auto-collapsed, the wide state is the preference.
-      setNarrow: (d, narrow: boolean) => {
-        if (d.narrow === narrow) return
-        d.narrow = narrow
-        d.narrowExpanded = false
-      },
-      // Crossing into mobile closes the drawer; leaving mobile keeps the
-      // state (unused in the wide form).
-      setMobile: (d, mobile: boolean) => {
-        if (d.mobile === mobile) return
-        d.mobile = mobile
-        if (mobile) d.drawerOpen = false
-      },
-      openDetails: (d) => { if (d.details === 0) d.details = DETAILS_DEFAULT },
-      closeDetails: (d) => { d.details = 0 },
-    },
+    actions: layoutActions,
   })
   return handle
 }
