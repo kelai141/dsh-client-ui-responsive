@@ -48,4 +48,10 @@ export const MOBILE_SETTINGS_CSS: string = `
   }
 
   [role='dialog'][aria-modal='true']:has(> nav) > nav > div:nth-child(2) > button {
+    /* Review 2026-08-18：原规则自 #2 起就是未闭合空块（开括号比闭括号多 2 个），
+       永不生效。按容器语义补全：nav 按钮容器是 flex-direction: row +
+       overflow-x: auto，按钮需 flex: none 才不被压缩、随容器横向滚动。 */
+    flex: none;
+  }
+}
 `

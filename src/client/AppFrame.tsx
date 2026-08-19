@@ -173,7 +173,7 @@ export function AppFrame({
     const sheetOpen = detailsSession !== undefined && panels.details > 0
     return (
       <div ref={frameRef} className={css.mobileFrame} data-mobile>
-        <div className={css.mobileTopBar}>
+        <div className={css.mobileTopBar} data-mobile-topbar>
           <button
             type="button"
             className={css.mobileHamburger}
