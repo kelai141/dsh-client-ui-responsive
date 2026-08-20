@@ -1,8 +1,8 @@
 /**
  * Composer control-row narrow-screen fixes:
- * - The model-selection pill is 176px fixed; below ~380px it overlaps the
- *   permission/access pill (device-observed on 360dp phones). Cap its width
- *   and tighten the row gap so both stay tappable.
+ * - The model-selection pill is 176px fixed; on phones below the 400px
+ *   breakpoint it overlaps the permission/access pill (device-observed on
+ *   360dp phones). Cap its width and ellipsize so both stay tappable.
  */
 export const COMPOSER_ROW_CSS: string = `
 @media (max-width: 400px) {

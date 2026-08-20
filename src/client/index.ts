@@ -4,8 +4,8 @@
  * four child slots (declaration = exclusive render authority), seats the
  * layout store (panel geometry), and wires the panel-action service face.
  * ctx.layout is the cross-plugin panel-action contract; navigation state lives
- * with the runtime sessions service. A second effect seats the theme
- * presenter, which projects ctx.theme snapshots onto document.body.
+ * with the runtime sessions service. Later effects seat the theme presenter
+ * (projecting ctx.theme snapshots onto document.body) and other UI fixes.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
@@ -194,7 +194,7 @@ export function apply(ctx: ClientContext): void {
   }, DevSection))
 
   // Composer control-row narrow fix: the 176px model pill overlaps the
-  // permission pill below ~380px; cap it on phones.
+  // permission pill below the 400px breakpoint; cap it on phones.
   ctx.effect(() => {
     const style = document.createElement('style')
     style.setAttribute('data-plugin', 'composer-row')

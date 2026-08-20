@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
-// EnterGuard 单测（Review 2026-08-18 T1 补测）：四道守卫（IME/命令菜单/
-// Shift+Enter/桌面视口）+ 移动视口拦截 + execCommand 降级，此前零测试。
+// EnterGuard unit tests: four guards (IME / command menu / Shift+Enter / desktop viewport)
+// + mobile-viewport interception + execCommand degradation.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { EnterGuard } from '../src/client/enter-guard.ts'
 import { MOBILE_BREAKPOINT } from '../src/client/columns.ts'
 
-/** 以指定视口宽度运行一个用例（jsdom innerWidth 可写）。 */
+/** Run a case at the given viewport width (jsdom innerWidth is writable). */
 function setViewport(width: number) {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
 }
 
-/** 构造位于 composer textarea 内的 Enter keydown 并 dispatch（capture 监听在 document）。 */
+/** Build and dispatch an Enter keydown on a composer textarea (the capture listener sits on document). */
 function fireEnter(target: HTMLElement, opts: KeyboardEventInit = {}) {
   const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...opts })
   target.dispatchEvent(event)
@@ -21,11 +21,11 @@ let host: HTMLElement
 let guard: EnterGuard
 
 beforeEach(() => {
-  setViewport(MOBILE_BREAKPOINT - 1) // 默认移动视口
+  setViewport(MOBILE_BREAKPOINT - 1) // default mobile viewport
   host = document.createElement('div')
   host.innerHTML = '<div data-composer-card><textarea></textarea></div>'
   document.body.appendChild(host)
-  // jsdom 无 execCommand 实现：stub 为可观察 spy。
+  // jsdom has no execCommand implementation: stub it as an observable spy.
   document.execCommand = vi.fn(() => true) as unknown as typeof document.execCommand
   guard = new EnterGuard()
   guard.attach()

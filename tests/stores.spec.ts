@@ -1,12 +1,12 @@
 // @vitest-environment node
-// 布局 store 单测（Review 2026-08-18 T1 补测）：直接驱动 stores.ts 导出的
-// layoutActions 纯 draft 变换（immer 语义 = 就地改 draft），不依赖 runtime
-// 的模块加载器。三态 toggle 语义（wide/narrow/mobile）与断点穿越重置逻辑。
+// Layout-store unit tests: drive the pure draft transformations exported by stores.ts
+// (immer semantics = in-place draft edits) without the runtime's module loader.
+// Covers the three-way toggle semantics (wide/narrow/mobile) and breakpoint-crossing resets.
 import { describe, it, expect, vi } from 'vitest'
 
-// runtime 的 client bundle 顶层执行 window.__ModuleLoader__.load（浏览器
-// 加载器形态），vitest 无法提供；本测试只驱动 stores.ts 的 layoutActions
-// 纯 draft 变换，defineStore 仅需存在（createLayoutStore 不在本测试范围）。
+// The runtime client bundle runs window.__ModuleLoader__.load at its top level (browser-loader form),
+// which vitest cannot provide; this test drives only stores.ts's pure layoutActions drafts, so
+// defineStore just needs to exist (createLayoutStore is out of scope).
 vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
   defineStore: (decl: unknown) => ({ create: () => decl }),
 }))
@@ -23,7 +23,7 @@ type LayoutState = {
   drawerOpen: boolean
 }
 
-/** 每次调用前从初始状态 clone 一个 fresh draft（immer produce 语义）。 */
+/** Clone a fresh draft from the initial state before every call (immer produce semantics). */
 function freshDraft(): LayoutState {
   return { sidebar: SIDEBAR_DEFAULT, details: 0, narrow: false, narrowExpanded: false, mobile: false, drawerOpen: false }
 }
@@ -74,7 +74,7 @@ describe('toggleSidebar 三态语义', () => {
     layoutActions.setNarrow(d, true)
     layoutActions.toggleSidebar(d)
     expect(d.narrowExpanded).toBe(true)
-    expect(d.sidebar).toBe(SIDEBAR_DEFAULT) // 偏好保留
+    expect(d.sidebar).toBe(SIDEBAR_DEFAULT) // preference preserved
     layoutActions.toggleSidebar(d)
     expect(d.narrowExpanded).toBe(false)
   })
@@ -94,22 +94,22 @@ describe('断点穿越', () => {
   it('进入窄屏重置 narrowExpanded（默认回到自动折叠）', () => {
     const d = freshDraft()
     layoutActions.setNarrow(d, true)
-    layoutActions.toggleSidebar(d) // 展开覆盖
+    layoutActions.toggleSidebar(d) // expand override
     expect(d.narrowExpanded).toBe(true)
-    layoutActions.setNarrow(d, false) // 离开窄屏
-    layoutActions.setNarrow(d, true) // 再次进入
+    layoutActions.setNarrow(d, false) // leave narrow
+    layoutActions.setNarrow(d, true) // re-enter
     expect(d.narrowExpanded).toBe(false)
   })
 
   it('进入移动形态关闭抽屉；离开保留状态', () => {
     const d = freshDraft()
     layoutActions.setMobile(d, true)
-    layoutActions.toggleSidebar(d) // 抽屉开
+    layoutActions.toggleSidebar(d) // drawer opens
     expect(d.drawerOpen).toBe(true)
     layoutActions.setMobile(d, false)
-    expect(d.drawerOpen).toBe(true) // 离开保留（宽形态不用）
+    expect(d.drawerOpen).toBe(true) // kept on exit (unused in the wide form)
     layoutActions.setMobile(d, true)
-    expect(d.drawerOpen).toBe(false) // 再进入即关
+    expect(d.drawerOpen).toBe(false) // closed on re-entry
   })
 })
 
@@ -119,7 +119,7 @@ describe('details 开关', () => {
     layoutActions.openDetails(d)
     expect(d.details).toBe(DETAILS_DEFAULT)
     layoutActions.setDetails(d, 400)
-    layoutActions.openDetails(d) // 已开：no-op
+    layoutActions.openDetails(d) // already open: no-op
     expect(d.details).toBe(400)
   })
 

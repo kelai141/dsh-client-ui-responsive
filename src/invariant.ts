@@ -16,8 +16,8 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: the shell viewing-state store behind ctx.layout emits
- * no cordis events; clamp/prune/concession-chain
- * sequencing is asserted directly by this package's columns and service specs.
+ * no cordis events; clamping and breakpoint-transition sequencing are asserted
+ * directly by this package's columns and layout-store tests.
  */
 const install: InvariantInstaller = () => {}
 

@@ -1,18 +1,19 @@
 /**
- * 开发者选项设置页（Android 壳设施）：重启 / 关闭（均二次确认）/ 刷新界面 /
- * 打开控制台 / 开发者调试日志开关。注册在上游官方 settings.section 扩展点
- * （ui-settings-general 的 nav 自动投影，零上游改动）。
- * 桥调用走 window.androidBridge（MainActivity addJavascriptInterface 注入）。
+ * Developer-options settings page (Android shell facilities): restart / shut down (both with a
+ * custom confirm) / refresh UI / open console / dev debug-log toggle. Registered at the upstream
+ * settings.section extension point (auto-projected by ui-settings-general's nav, zero upstream
+ * changes). Bridge calls go through window.androidBridge (injected by MainActivity's
+ * addJavascriptInterface).
  *
- * 0.12.1（issue #40）：新增「重启」「关闭」两个独立操作按钮，均在前端弹
- * 自定义二次确认（WebView 的 window.confirm 在壳 onJsAlert 自动放行下不可
- * 靠）；「关闭」= 停止引擎并回退初始化界面（壳 shutdownToGuide 桥）。
+ * Restart and shut down draw a custom frontend confirm because WebView's window.confirm is
+ * unreliable under the shell's auto-approving onJsAlert; "Shut down" stops the engine and falls
+ * back to the init screen (shell shutdownToGuide bridge).
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only：拉入 settings.section owner share（构建期擦除，仅类型）。
+// Type-only: pulls in the settings.section owner share (erased at build time, types only).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-// 桥类型单一事实源（含 Window.androidBridge 全局声明）。
+// Single source of truth for the bridge types (incl. the Window.androidBridge global).
 import type {} from '../android-bridge.ts'
 
 /** Full section props: the settings shell supplies only `close`. */

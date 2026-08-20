@@ -1,7 +1,8 @@
 /**
- * 开发者选项设置页样式：复用 --dsw-* 语义 token（浅/深色自动跟随），
- * 按钮行式布局；窄屏（移动形态）按钮全宽堆叠、行内换行。
- * 注入方式与 mobile-settings.css.ts 一致（data-plugin 选择器，防 class 哈希）。
+ * Developer-options settings-page styles: reuse --dsw-* semantic tokens (auto light/dark), buttons in
+ * a wrapping row layout; on narrow screens (mobile form) buttons become a two-column grid.
+ * Injection matches mobile-settings.css.ts (style tag + data-plugin attribute; this page's root
+ * selector uses [data-plugin='dev-section'] against class-hash churn).
  */
 export const DEV_SECTION_CSS: string = `
 [data-plugin='dev-section'] {
@@ -116,9 +117,9 @@ export const DEV_SECTION_CSS: string = `
   color: var(--dsw-alias-danger-fg, #c0392b);
 }
 
-/* 深色主题兜底（#43，2026-08-18）：部分环境 --dsw-alias-bg-elevated 未定义
- * 会回退 #fff（白底），而 label-primary 在深色下为白字 → 白底白字。
- * 为不确定存在的 token 提供与主题一致的显式兜底。 */
+/* Dark-theme fallback (#43, 2026-08-18): in some environments --dsw-alias-bg-elevated is undefined
+ * and falls back to #fff (white bg), while label-primary is white text in dark mode → white-on-white.
+ * Provide explicit theme-consistent fallbacks for tokens that may not exist. */
 @media (prefers-color-scheme: dark) {
   .dsh-dev-btn {
     background: var(--dsw-alias-bg-elevated, #26262b);
