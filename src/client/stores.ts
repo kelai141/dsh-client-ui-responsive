@@ -57,10 +57,9 @@ type LayoutActions = {
 export const layoutActions: LayoutActions = {
   setSidebar: (d, px: number) => { d.sidebar = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX) },
   setDetails: (d, px: number) => { d.details = clampWidth(px, DETAILS_MIN, DETAILS_MAX) },
-  // Narrow toggles flip only the override: the width preference survives
-  // untouched, so re-widening restores the pre-squeeze layout.
-  // Mobile toggles flip the drawer; narrow toggles flip only the
-  // override; wide toggles the width preference.
+  // Mobile toggles flip the drawer, narrow toggles flip only the override,
+  // wide toggles flip the width preference (the preference survives narrow
+  // overrides untouched, so re-widening restores the pre-squeeze layout).
   toggleSidebar: (d) => {
     if (d.mobile) d.drawerOpen = !d.drawerOpen
     else if (d.narrow) d.narrowExpanded = !d.narrowExpanded

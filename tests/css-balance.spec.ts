@@ -1,8 +1,8 @@
 // @vitest-environment node
-// CSS 字符串健全性校验（Review 2026-08-18）：mobile-settings.css.ts 曾以
-// 未闭合选择器块（{7 / }5）入库并注入 <style>，该规则永远不生效且无任何
-// 构建期/测试期手段捕获。本测试对 src/**/*.css.ts 的模板字符串做括号平衡
-// 断言，防止同类错误再次漏网。
+// CSS string sanity checks: mobile-settings.css.ts once shipped an unclosed selector block
+// ({7 / }5) injected as <style> — the rule never applied and no build/test step caught it.
+// This test asserts brace balance on the template strings of src/**/*.css.ts so the same
+// class of mistake cannot slip through again.
 import { describe, it, expect } from 'vitest'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 
-/** 收集 src 下所有 *.css.ts 文件路径。 */
+/** Collect every *.css.ts path under src. */
 function collectCssTs(dir: string): string[] {
   const out: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -31,7 +31,7 @@ describe('CSS 注入字符串健全性', () => {
     const rel = relative(root, file)
     it(`${rel} 的花括号平衡`, () => {
       const source = readFileSync(file, 'utf8')
-      // 提取模板字符串体：css.ts 的 CSS 在反引号内；逐字符扫描找最外层模板串。
+      // Extract the template string bodies: css.ts CSS lives inside backticks; pull all backticked fragments.
       const bodies: string[] = []
       for (const match of source.matchAll(/`([^`]*)`/g)) bodies.push(match[1])
       expect(bodies.length).toBeGreaterThan(0)

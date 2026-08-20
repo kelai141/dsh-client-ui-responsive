@@ -15,12 +15,13 @@ export const DARK_ATTRIBUTE = 'data-ds-dark-theme'
 /** Applies theme snapshots to the document; one instance per plugin fiber. */
 export class ThemePresenter {
   private static nextId = 0
-  /** 最后写入者标记（L3）：全局写（colorScheme/暗色属性）只由最后 apply 的
-   *  实例收回——HMR 双 fiber/多实例并存时，先 dispose 的实例不清掉后写入
-   *  者的全局状态。 */
+  /** Last-writer marker (L3): global writes (colorScheme/dark attribute) are retracted only by the
+   *  last apply'ing instance — under HMR dual fibers / multiple coexisting instances, an earlier
+   *  dispose must not clear a later writer's global state. */
   private readonly uid = 'p' + ThemePresenter.nextId++
-  /** Token 变量及其写入值（L3：dispose 只回收"值仍是我写的"变量——
-   *  同名 token 被后写入者覆盖时，先 dispose 的实例不得删掉后写入者的值）。 */
+  /** Token variables and the values this presenter wrote (L3: dispose retracts only variables whose
+   *  value is still "mine" — when a later writer overrode the same token, the earlier dispose must
+   *  not delete the later writer's value). */
   private appliedTokens = new Map<string, string>()
   /** The single metadata node this presenter inserts and removes. */
   private readonly themeColorMeta: HTMLMetaElement

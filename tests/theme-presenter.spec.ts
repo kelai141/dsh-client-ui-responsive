@@ -46,13 +46,14 @@ describe('ThemePresenter (H5 覆盖)', () => {
     const b = new ThemePresenter()
     a.apply(lightSnapshot())
     b.apply(darkSnapshot())
-    // a 先 dispose：全局（color-scheme/暗色属性）属于最后写入者 b，必须保留
+    // a disposes first: globals (color-scheme/dark attribute) belong to the last writer b and must
+    // stay
     a.dispose()
     expect(document.documentElement.style.colorScheme).toBe('dark')
     expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(true)
-    // b 的 token 不受 a 影响
+    // b's tokens are unaffected by a
     expect(document.body.style.getPropertyValue('--a')).toBe('#111')
-    // b dispose 后全局才清
+    // globals clear only after b disposes
     b.dispose()
     expect(document.documentElement.style.colorScheme).toBe('')
     expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(false)

@@ -1,4 +1,4 @@
-// 桥类型单一事实源（含 Window.androidBridge 全局声明）。
+// Single source of truth for the bridge types (incl. the Window.androidBridge global).
 import type {} from './android-bridge.ts'
 
 /**
@@ -28,9 +28,10 @@ export class ThemeBridge {
     // setDark (this instance), so the theme would never follow. Stand down when
     // a bridge is present.
     if ((window as unknown as { __dshThemeBridge?: unknown }).__dshThemeBridge) return
-    // L4（2026-08-16）：没有任何 setDark 来源（无早装桥、无壳的同步查询桥）时
-    // 也不安装——否则 matchMedia 被 hook 成永无更新来源的悬空桩（桌面等
-    // 非 Android 宿主），陈旧值污染后续所有 prefers-color-scheme 查询。
+    // L4 (2026-08-16): with no setDark source at all (no early-installed bridge, no sync shell query
+    // bridge), do not install either — otherwise matchMedia becomes a dangling stub with no update
+    // source (desktop etc. non-Android hosts), polluting all later prefers-color-scheme queries
+    // with stale values.
     if (!android || typeof android.getSystemDark !== 'function') return
     const self = this
     const nativeMatchMedia = window.matchMedia.bind(window)
@@ -73,11 +74,11 @@ export class ThemeBridge {
         }
       },
     }
-    // H1（2026-08-16）：boot 快照同步拉取壳的真实 uiMode——厂商 WebView 的
-    // 原生 matchMedia 可能卡 light（vivo/Android 16），首帧即用真实值，
-    // 不再依赖 native 查询或后续异步推送。
+    // H1 (2026-08-16): pull the shell's real uiMode synchronously at boot — a vendor WebView's
+    // native matchMedia may be stuck on light (vivo/Android 16); use the real value on the first
+    // frame instead of relying on native queries or later async pushes.
     try {
       if (android.getSystemDark()) globalObj.__dshThemeBridge.setDark(true)
-    } catch { /* 桥查询不可用：保持浅色直到推送 */ }
+    } catch { /* bridge query unavailable: keep light until pushed */ }
   }
 }

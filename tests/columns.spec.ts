@@ -1,6 +1,6 @@
 // @vitest-environment node
-// 让步链求解器单测（Review 2026-08-18 T1 补测）：columns.ts 是全仓最纯的
-// 逻辑（输入=视口+偏好，输出=三栏宽度），此前零测试。
+// Concession-chain solver unit tests: columns.ts is the purest logic in the package
+// (input = viewport + preferences, output = three-column widths).
 import { describe, it, expect } from 'vitest'
 import {
   clampWidth, computeColumns,
@@ -36,8 +36,8 @@ describe('computeColumns 让步链', () => {
   })
 
   it('Step 2：details 让步到最小值，center 保住 CENTER_MIN', () => {
-    // Step 2 放行边界：s + DETAILS_MIN + CENTER_MIN <= viewport < s + d0 + CENTER_MIN
-    const v = SIDEBAR_DEFAULT + DETAILS_MIN + CENTER_MIN // = 1220（恰好放行）
+    // Step 2 pass boundary: s + DETAILS_MIN + CENTER_MIN <= viewport < s + d0 + CENTER_MIN
+    const v = SIDEBAR_DEFAULT + DETAILS_MIN + CENTER_MIN // = 1220 (exactly passing)
     const cols = computeColumns(v, SIDEBAR_DEFAULT, DETAILS_DEFAULT)
     expect(cols.details).toBe(DETAILS_MIN)
     expect(cols.center).toBe(CENTER_MIN)
@@ -88,7 +88,7 @@ describe('computeColumns 让步链', () => {
   it('偏好越界时重钳（跨 store 边界防御）', () => {
     const cols = computeColumns(1400, 9999, -5)
     expect(cols.sidebar).toBe(SIDEBAR_MAX)
-    expect(cols.details).toBe(DETAILS_MIN) // -5 → 钳到 min（非 0，调用方传 0 才是关闭）
+    expect(cols.details).toBe(DETAILS_MIN) // -5 → clamped to min (not 0; callers pass 0 to actually close)
   })
 
   it('无滞回：相同输入输出相同（恢复性）', () => {

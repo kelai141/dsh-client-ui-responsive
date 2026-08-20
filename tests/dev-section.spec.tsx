@@ -4,7 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { DevSection } from '../src/client/dev-section/DevSection.tsx'
 
-// React 18 concurrent 渲染：render 与 unmount 需 act 包裹（否则 DOM 未 flush）。
+// React 18 concurrent rendering: render and unmount must be wrapped in act (otherwise the DOM is not flushed).
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 type Bridge = {
