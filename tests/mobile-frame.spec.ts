@@ -35,4 +35,10 @@ describe('trajectory details overlay (apk#67)', () => {
     expect(body).toContain('position: fixed')
     expect(body).toContain('inset: 0')
   })
+  it('raises the ledger stacking context while the panel is open (banner/tabs/timeline cover fix)', () => {
+    const source = readFileSync(overlayCss, 'utf8')
+    const body = source.match(/`([^`]*)`/)?.[1] ?? ''
+    expect(body).toContain(':has([aria-label="Event details"])')
+    expect(body).toContain('z-index: 12')
+  })
 })

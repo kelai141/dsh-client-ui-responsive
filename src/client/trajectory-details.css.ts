@@ -25,5 +25,14 @@ export const TRAJECTORY_DETAILS_CSS: string = `
   [data-mobile] [aria-label="Event details"] [aria-label="Resize event details"] {
     display: none;
   }
+  /* The panel's fixed z-index lives inside the ledger's stacking context
+     (position:relative; z-index:0; isolation:isolate), so it loses to the
+     top bar (z3), the tabs and the timeline bar (z1) — the banner then
+     covers the panel and the tabs/timeline stay visible above it. While the
+     panel is open, raise the ledger itself so the whole subtree (panel
+     included) covers them. */
+  [data-mobile] [class*="ledger"]:has([aria-label="Event details"]) {
+    z-index: 12;
+  }
 }
 `
