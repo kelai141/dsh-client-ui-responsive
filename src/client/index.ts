@@ -17,6 +17,7 @@ import { LayoutController } from './service.ts'
 import { ThemePresenter } from './theme-presenter.ts'
 import { ThemeBridge } from './theme-bridge.ts'
 import { EnterGuard } from './enter-guard.ts'
+import { KeyboardBoundary } from './keyboard-boundary.ts'
 import { ExportResultDialog } from './ExportResultDialog.tsx'
 import { createExportResultStore, type ExportResultPayload } from './export-result.ts'
 import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
@@ -27,6 +28,7 @@ import { MenuViewportGuard } from './menu-viewport-guard.ts'
 import { SESSION_LOG_DIALOG_HIDE_CSS } from './session-log-dialog.css.ts'
 import { DevSection } from './dev-section/DevSection.tsx'
 import { DEV_SECTION_CSS } from './dev-section/dev-section.css.ts'
+import { GeneralSettings } from './general-settings/GeneralSettings.tsx'
 
 // Contract exports only (export-convergence rule: cross-package consumers
 // keep a symbol exported; test-only/package-internal symbols live off /src).
@@ -193,6 +195,18 @@ export function apply(ctx: ClientContext): void {
     label: () => '开发者选项',
   }, DevSection))
 
+  // Android general-settings rows (issue #59): font-size slider + immersive
+  // status-bar toggle. The upstream General section lost these two rows; the
+  // shell bridges (setTextZoom / setImmersiveMode) exist and persist, the UI
+  // never called them. Registered into settings.general.item with a low order
+  // so the rows appear after the built-in items.
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'android-general',
+    order: 90,
+    label: () => 'Android 显示',
+  }, GeneralSettings))
+
   // Composer control-row narrow fix: the 176px model pill overlaps the
   // permission pill below the 400px breakpoint; cap it on phones.
   ctx.effect(() => {
@@ -261,6 +275,17 @@ export function apply(ctx: ClientContext): void {
     guard.attach()
     return () => { guard.detach() }
   }, 'ui-layout: mobile enter guard')
+
+  // Mobile keyboard boundary (issue #57): while the IME is open the mobile
+  // frame keeps its 100% height (the layout viewport does not shrink on
+  // Android 16 edge-to-edge), leaving a scrollable blank band under the
+  // composer. Pin the frame to the visualViewport height while an IME inset
+  // is present so the blank band is clipped instead of scrolled into view.
+  ctx.effect(() => {
+    const boundary = new KeyboardBoundary()
+    boundary.attach()
+    return () => { boundary.detach() }
+  }, 'ui-layout: mobile keyboard boundary')
 
   // Theme bridge: prefers-color-scheme → OS dark state on WebViews whose
   // media query does not track uiMode (vivo/Android 16 observed). The shell
