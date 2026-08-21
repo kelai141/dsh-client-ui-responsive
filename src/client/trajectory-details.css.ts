@@ -10,7 +10,10 @@
  */
 export const TRAJECTORY_DETAILS_CSS: string = `
 @media (max-width: 760px) {
-  [data-mobile] [aria-label="Event details"] {
+  /* aside-scoped: the upstream panel's tablist ALSO carries aria-label="Event
+     details", so a bare attribute selector would also turn the tabs into a
+     fixed full-screen overlay covering the header and the close button. */
+  [data-mobile] aside[aria-label="Event details"] {
     position: fixed;
     inset: 0;
     z-index: 40;
@@ -22,7 +25,7 @@ export const TRAJECTORY_DETAILS_CSS: string = `
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-  [data-mobile] [aria-label="Event details"] [aria-label="Resize event details"] {
+  [data-mobile] aside[aria-label="Event details"] [aria-label="Resize event details"] {
     display: none;
   }
   /* The panel's fixed z-index lives inside the ledger's stacking context
@@ -31,7 +34,7 @@ export const TRAJECTORY_DETAILS_CSS: string = `
      covers the panel and the tabs/timeline stay visible above it. While the
      panel is open, raise the ledger itself so the whole subtree (panel
      included) covers them. */
-  [data-mobile] [class*="ledger"]:has([aria-label="Event details"]) {
+  [data-mobile] [class*="ledger"]:has(aside[aria-label="Event details"]) {
     z-index: 12;
   }
 }
