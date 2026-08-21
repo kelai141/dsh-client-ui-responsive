@@ -31,14 +31,21 @@ describe('trajectory details overlay (apk#67)', () => {
     const source = readFileSync(overlayCss, 'utf8')
     const body = source.match(/`([^`]*)`/)?.[1] ?? ''
     expect(body).toContain('@media (max-width: 760px)')
-    expect(body).toContain('[aria-label="Event details"]')
+    expect(body).toContain('aside[aria-label="Event details"]')
     expect(body).toContain('position: fixed')
     expect(body).toContain('inset: 0')
+  })
+  it('scopes the overlay to the aside (the tablist also carries the same aria-label)', () => {
+    const source = readFileSync(overlayCss, 'utf8')
+    const body = source.match(/`([^`]*)`/)?.[1] ?? ''
+    // The fixed-position rule must be aside-scoped, never bare [aria-label="Event details"].
+    expect(body).not.toContain('[data-mobile] [aria-label="Event details"] {')
+    expect(body).toContain('[data-mobile] aside[aria-label="Event details"] {')
   })
   it('raises the ledger stacking context while the panel is open (banner/tabs/timeline cover fix)', () => {
     const source = readFileSync(overlayCss, 'utf8')
     const body = source.match(/`([^`]*)`/)?.[1] ?? ''
-    expect(body).toContain(':has([aria-label="Event details"])')
+    expect(body).toContain(':has(aside[aria-label="Event details"])')
     expect(body).toContain('z-index: 12')
   })
 })
