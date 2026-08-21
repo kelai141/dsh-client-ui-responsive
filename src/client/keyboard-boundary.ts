@@ -10,9 +10,19 @@
  * visualViewport height (the keyboard's top edge). The frame's overflow:
  * hidden then clips the blank band instead of letting it scroll into view.
  * Restored to 100% when the keyboard closes.
+ *
+ * The composer seat (position: sticky; bottom: 0) normally relies on
+ * composer-insets.css.ts padding-bottom = --dsh-android-ime-bottom to lift
+ * the input above the keyboard while the frame keeps its full height. Once
+ * this class pins the frame to the keyboard top edge, that same padding
+ * becomes redundant and inflates the seat past its sticky container (seat
+ * height > scrollBody height makes the sticky bottom anchor inert and the
+ * composer drifts to the top of the viewport). While pinned, the seat's
+ * padding-bottom is therefore zeroed; it is restored on keyboard close.
  */
 export class KeyboardBoundary {
   private frame: HTMLElement | null = null
+  private seat: HTMLElement | null = null
   private media: MediaQueryList | null = null
   private lastIme = 0
   private lastVv = 0
@@ -27,12 +37,11 @@ export class KeyboardBoundary {
     this.onViewportChange()
   }
 
-  /** Remove listeners and restore the frame height. */
+  /** Remove listeners and restore the frame and seat styles. */
   detach(): void {
     window.visualViewport?.removeEventListener('resize', this.onViewportChange)
     this.media?.removeEventListener?.('change', this.onViewportChange)
-    if (this.frame !== null) this.frame.style.height = ''
-    this.frame = null
+    this.restore()
   }
 
   private readonly onViewportChange = (): void => {
@@ -49,10 +58,25 @@ export class KeyboardBoundary {
       this.lastIme = ime
       this.lastVv = vvHeight
       frame.style.height = `${vvHeight}px`
+      // Null out the seat's IME padding while the frame is pinned (see the
+      // class comment); keep safe-area/system paddings intact.
+      const seat = document.querySelector<HTMLElement>('[data-composer-seat]')
+      if (seat !== null) {
+        this.seat = seat
+        seat.style.paddingBottom = '0px'
+      }
     } else if (ime === 0 && (this.lastIme !== 0 || frame.style.height !== '')) {
-      this.lastIme = 0
-      this.lastVv = 0
-      frame.style.height = ''
+      this.restore()
     }
+  }
+
+  /** Restore the natural frame height and seat padding. */
+  private restore(): void {
+    if (this.frame !== null) this.frame.style.height = ''
+    this.frame = null
+    if (this.seat !== null) this.seat.style.paddingBottom = ''
+    this.seat = null
+    this.lastIme = 0
+    this.lastVv = 0
   }
 }

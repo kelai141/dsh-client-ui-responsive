@@ -11,6 +11,7 @@ function setImeInset(px: number) {
 }
 
 let frame: HTMLElement
+let seat: HTMLElement
 let boundary: KeyboardBoundary
 
 /** jsdom has no visualViewport: shim it as an observable event target. */
@@ -41,6 +42,9 @@ beforeEach(() => {
   frame = document.createElement('div')
   frame.setAttribute('data-mobile', '')
   document.body.appendChild(frame)
+  seat = document.createElement('div')
+  seat.setAttribute('data-composer-seat', '')
+  document.body.appendChild(seat)
   boundary = new KeyboardBoundary()
   boundary.attach()
 })
@@ -48,6 +52,7 @@ beforeEach(() => {
 afterEach(() => {
   boundary.detach()
   frame.remove()
+  seat.remove()
   setImeInset(0)
   delete (window as { visualViewport?: unknown }).visualViewport
   vi.restoreAllMocks()
@@ -70,17 +75,34 @@ describe('KeyboardBoundary 键盘展开（IME inset > 0）', () => {
     viewport._fire('resize')
     expect(frame.style.height).toBe('484px')
   })
-})
 
-describe('KeyboardBoundary 键盘收起 / 无 inset', () => {
-  it('IME inset 归零：恢复 100% 高度', () => {
+  it('frame 钉高时 seat 的 IME padding 归零（防 sticky 失效导致 composer 上飘）', () => {
+    setImeInset(316)
+    Object.defineProperty(viewport, 'height', { value: 484 })
+    viewport._fire('resize')
+    expect(seat.style.paddingBottom).toBe('0px')
+  })
+
+  it('无 seat 时仍钉高 frame（seat 为可选）', () => {
+    seat.remove()
     setImeInset(316)
     Object.defineProperty(viewport, 'height', { value: 484 })
     viewport._fire('resize')
     expect(frame.style.height).toBe('484px')
+  })
+})
+
+describe('KeyboardBoundary 键盘收起 / 无 inset', () => {
+  it('IME inset 归零：恢复 100% 高度 + seat padding 还原', () => {
+    setImeInset(316)
+    Object.defineProperty(viewport, 'height', { value: 484 })
+    viewport._fire('resize')
+    expect(frame.style.height).toBe('484px')
+    expect(seat.style.paddingBottom).toBe('0px')
     setImeInset(0)
     viewport._fire('resize')
     expect(frame.style.height).toBe('')
+    expect(seat.style.paddingBottom).toBe('')
   })
 
   it('无 IME inset 的窗口 resize：保持 100%（不误伤）', () => {
