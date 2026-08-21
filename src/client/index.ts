@@ -24,6 +24,7 @@ import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
 import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
 import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
 import { COMPOSER_INSETS_CSS } from './composer-insets.css.ts'
+import { TRAJECTORY_DETAILS_CSS } from './trajectory-details.css.ts'
 import { MenuViewportGuard } from './menu-viewport-guard.ts'
 import { SESSION_LOG_DIALOG_HIDE_CSS } from './session-log-dialog.css.ts'
 import { DevSection } from './dev-section/DevSection.tsx'
@@ -235,6 +236,18 @@ export function apply(ctx: ClientContext): void {
     document.head.appendChild(style)
     return () => { style.remove() }
   }, 'ui-layout: composer menu scroll fix')
+
+  // Trajectory local details panel (issue apk#67): on narrow screens the
+  // upstream panel is confined between the timeline bar and the composer seat.
+  // Overlay it full-viewport so it has real reading space (fixed escapes the
+  // ledger; the panel's own body scrolls).
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.setAttribute('data-plugin', 'trajectory-details')
+    style.textContent = TRAJECTORY_DETAILS_CSS
+    document.head.appendChild(style)
+    return () => { style.remove() }
+  }, 'ui-layout: trajectory details full-viewport overlay')
 
   // Mobile chrome occupies the top viewport edge; keep an upward-opening
   // command menu below it rather than hiding its first rows beneath the bar.

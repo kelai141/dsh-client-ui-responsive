@@ -125,7 +125,13 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow: hidden;
+  /* clip, not hidden: hidden keeps the frame a scroll container, and the
+     always-mounted closed details sheet (translateY(100%) extends its box
+     152px past the frame bottom) inflates scrollHeight, so scrollIntoView /
+     touch drags scroll the whole frame — content drifts up, the top bar
+     scrolls away and the closed sheet peeks into the viewport bottom
+     (issue apk#65). clip clips without creating a scroll container. */
+  overflow: clip;
   background: var(--dsw-alias-bg-base);
 }
 
