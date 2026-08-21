@@ -20,8 +20,10 @@ export class KeyboardBoundary {
   /** Watch visualViewport resize + the shell's IME inset variable. */
   attach(): void {
     window.visualViewport?.addEventListener('resize', this.onViewportChange)
-    this.media = window.matchMedia('(max-width: 640px)')
-    this.media.addEventListener?.('change', this.onViewportChange)
+    // jsdom's matchMedia stub returns a bare object: tolerate it (the
+    // visualViewport resize still drives the pin).
+    this.media = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 640px)') : null
+    this.media?.addEventListener?.('change', this.onViewportChange)
     this.onViewportChange()
   }
 
