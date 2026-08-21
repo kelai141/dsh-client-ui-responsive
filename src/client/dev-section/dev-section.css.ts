@@ -103,6 +103,25 @@ export const DEV_SECTION_CSS: string = `
   margin: 0;
 }
 
+.dsh-dev-label {
+  font-size: 14px;
+  color: var(--dsw-alias-label-primary, #222);
+  min-width: 64px;
+}
+
+.dsh-dev-value {
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary, #666);
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.dsh-dev-row input[type='range'] {
+  flex: 1;
+  min-width: 120px;
+}
+
 .dsh-dev-hint {
   margin: 0;
   font-size: 12px;
