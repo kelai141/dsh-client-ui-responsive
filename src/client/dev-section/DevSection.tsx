@@ -10,14 +10,15 @@
  * back to the init screen (shell shutdownToGuide bridge).
  */
 import { useCallback, useEffect, useState } from 'react'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls in the settings.section owner share (erased at build time, types only).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Single source of truth for the bridge types (incl. the Window.androidBridge global).
 import type {} from '../android-bridge.ts'
 
-/** Full section props: the settings shell supplies only `close`. */
-export type DevSectionProps = PropsRuntime<'settings.section'>
+/** Full section props: the settings shell supplies only `close`, plus the
+ *  developer-options child seat (adb authorization panel et al) this section declares. */
+export type DevSectionProps = PropsRuntime<'settings.section'> & Partial<PropsRenderSlots<'settings.dev.item'>>
 
 const CONFIRM_TEXT: Record<'restart' | 'close', { title: string; desc: string; ok: string }> = {
   restart: {
@@ -37,7 +38,7 @@ const CONFIRM_TEXT: Record<'restart' | 'close', { title: string; desc: string; o
  * @param props - composed slot props (contract/slots.ts).
  * @returns the section element tree.
  */
-export function DevSection(_props: DevSectionProps) {
+export function DevSection({ renderSlot }: DevSectionProps) {
   const [devLog, setDevLog] = useState<boolean>(() => {
     try {
       return window.androidBridge?.getDevLogEnabled?.() ?? false
@@ -48,6 +49,47 @@ export function DevSection(_props: DevSectionProps) {
   const [restarting, setRestarting] = useState(false)
   const [allFiles, setAllFiles] = useState<boolean | null>(null)
   const [confirm, setConfirm] = useState<'restart' | 'close' | null>(null)
+  // F5.1/D15（2026-08-23 补齐）：文件直达临时工作区占用 + 一键清理（R16 手动清理 + 占用展示）
+  const [incomingBytes, setIncomingBytes] = useState<number | null>(null)
+  const [incomingMsg, setIncomingMsg] = useState<string | null>(null)
+  const [cleaning, setCleaning] = useState(false)
+
+  const refreshIncoming = useCallback(async () => {
+    try {
+      const r = await fetch('/api/android/file-incoming')
+      if (r.ok) {
+        const j = (await r.json()) as { bytes?: number }
+        setIncomingBytes(typeof j.bytes === 'number' ? j.bytes : null)
+      }
+    } catch {
+      /* 非安卓宿主：静默 */
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshIncoming()
+  }, [refreshIncoming])
+
+  const cleanIncoming = useCallback(async () => {
+    setCleaning(true)
+    setIncomingMsg(null)
+    try {
+      const r = await fetch('/api/android/file-incoming/clean', { method: 'POST' })
+      const j = (await r.json().catch(() => null)) as { ok?: boolean; removed?: number } | null
+      setIncomingMsg(j?.ok ? `已清空临时工作区（${j.removed ?? 0} 项）——相关会话中的文件引用将失效` : '清理失败')
+    } catch {
+      setIncomingMsg('清理请求失败（仅安卓宿主可用）')
+    } finally {
+      setCleaning(false)
+      void refreshIncoming()
+    }
+  }, [refreshIncoming])
+
+  const fmtBytes = (n: number): string => {
+    if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB'
+    if (n >= 1024) return (n / 1024).toFixed(1) + ' KB'
+    return n + ' B'
+  }
 
   useEffect(() => {
     try {
@@ -106,6 +148,29 @@ export function DevSection(_props: DevSectionProps) {
     }
   }, [])
 
+  // 0.13.1 W4：配置导入/导出（安全手改通道——引擎读私有目录，外部改共享副本无效）。
+  const [configMsg, setConfigMsg] = useState<string | null>(null)
+
+  const exportConfig = useCallback(() => {
+    try {
+      const raw = window.androidBridge?.exportConfig?.()
+      const j = JSON.parse(raw ?? '{}') as { ok?: boolean; path?: string; error?: string }
+      setConfigMsg(j.ok ? `已导出到 ${j.path ?? 'exports/config/settings.yaml'}` : `导出失败：${j.error ?? '未知错误'}`)
+    } catch {
+      setConfigMsg('导出失败：桥不可用（仅安卓宿主可用）')
+    }
+  }, [])
+
+  const importConfig = useCallback(() => {
+    try {
+      const raw = window.androidBridge?.importConfig?.()
+      const j = JSON.parse(raw ?? '{}') as { ok?: boolean; hint?: string; error?: string }
+      setConfigMsg(j.ok ? `已导入并生效（原配置备份为 settings.yaml.import-backup）。${j.hint ?? ''}` : `导入失败：${j.error ?? '未知错误'}`)
+    } catch {
+      setConfigMsg('导入失败：桥不可用（仅安卓宿主可用）')
+    }
+  }, [])
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') cancelConfirm()
@@ -122,6 +187,9 @@ export function DevSection(_props: DevSectionProps) {
       <p className="dsh-dev-note">
         Android 壳调试设施：控制台为快照内嵌 Termux bash；日志默认关闭。
       </p>
+
+      {/* 开发者选项子区（2026-08-23）：ADB 授权面板等设施经 settings.dev.item 挂载 */}
+      {renderSlot?.('settings.dev.item', {})}
 
       <div className="dsh-dev-row">
         <button type="button" className="dsh-dev-btn" onClick={askRestart} disabled={restarting}>
@@ -140,6 +208,31 @@ export function DevSection(_props: DevSectionProps) {
         />
         <span>开发者调试日志</span>
       </label>
+
+      {/* 0.13.1 W4：配置导入/导出（安全手改通道；引擎读私有目录，改共享目录副本无效） */}
+      <div className="dsh-dev-row">
+        <button type="button" className="dsh-dev-btn" onClick={exportConfig}>导出配置</button>
+        <button type="button" className="dsh-dev-btn" onClick={importConfig}>导入配置</button>
+      </div>
+      {configMsg !== null && <p className="dsh-dev-hint">{configMsg}</p>}
+      <p className="dsh-dev-hint">
+        导出位置 Documents/dshdata/exports/config/settings.yaml；用文件管理器修改后点「导入配置」即可生效。
+        配置不含 API 密钥（密钥在应用私有目录，不随导出泄漏）。
+      </p>
+
+      {/* F5.1/D15：文件直达临时工作区（占用展示 + 一键清理；PRD R16 手动清理 + 占用展示） */}
+      {incomingBytes !== null && (
+        <div className="dsh-dev-row">
+          <span>
+            文件直达临时工作区占用：{fmtBytes(incomingBytes)}
+          </span>
+          <button type="button" className="dsh-dev-btn dsh-dev-danger" disabled={cleaning || incomingBytes === 0} onClick={() => void cleanIncoming()}>
+            {cleaning ? '清理中…' : '一键清理'}
+          </button>
+        </div>
+      )}
+      {incomingMsg !== null && <p className="dsh-dev-hint">{incomingMsg}</p>}
+      <p className="dsh-dev-hint">清理会删除临时工作区内的外部文件；相关会话中的文件引用将失效（D15：纯手动清理，无自动清理）。</p>
       <p className="dsh-dev-hint">{logPathHint}</p>
       <p className="dsh-dev-warn">日志包含命令与模型内容，仅用于排查，请及时清理。</p>
 

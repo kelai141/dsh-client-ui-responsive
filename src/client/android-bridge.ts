@@ -18,6 +18,12 @@ export interface AndroidShellBridge {
   getDevLogEnabled?: () => boolean
   /** Set the dev debug-log toggle; when on, logs are written daily under dshdata/log/. */
   setDevLogEnabled?: (enabled: boolean) => void
+  /** 0.13.1 W4: export the private settings.yaml to Documents/dshdata/exports/config/.
+   *  Returns JSON {ok, path?, error?} (synchronous bridge call). */
+  exportConfig?: () => string
+  /** 0.13.1 W4: import Documents/dshdata/exports/config/settings.yaml back into the
+   *  private DSH_HOME (engine hot-reloads via chokidar). Returns JSON {ok, path?, hint?, error?}. */
+  importConfig?: () => string
   /** Whether "All Files Access" is granted (prerequisite for external workspaces / public logs). */
   hasAllFilesAccess?: () => boolean
   /** Set the WebView font scale (textZoom, 50–200), persisted by the shell; Settings → General slider. */
