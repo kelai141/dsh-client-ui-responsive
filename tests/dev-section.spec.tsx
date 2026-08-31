@@ -20,13 +20,13 @@ type Bridge = {
 let root: Root | undefined
 let host: HTMLElement | undefined
 
-async function render(bridge: Bridge): Promise<HTMLElement> {
+async function render(bridge: Bridge, renderSlot?: () => React.ReactNode): Promise<HTMLElement> {
   window.androidBridge = bridge
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
   await act(async () => {
-    root!.render(<DevSection close={() => {}} />)
+    root!.render(<DevSection close={() => {}} renderSlot={renderSlot as never} />)
   })
   return host
 }
@@ -131,5 +131,16 @@ describe('DevSection（开发者选项设置页）', () => {
     const confirmBtn = [...el.querySelectorAll('.dsh-dev-modal button')].find(b => b.textContent === '重启')!
     await act(async () => { confirmBtn.click() })
     expect(() => { confirmBtn.click() }).not.toThrow()
+  })
+
+  it('渲染 settings.dev.item 子槽（ADB 授权块等设施挂载点）', async () => {
+    const el = await render({}, () => <div data-testid="dev-item">ADB 授权块</div>)
+    expect(el.querySelector('[data-testid="dev-item"]')).not.toBeNull()
+    expect(el.querySelector('[data-testid="dev-item"]')!.textContent).toBe('ADB 授权块')
+  })
+
+  it('未提供 renderSlot 时安全降级（不渲染子区、不抛异常）', async () => {
+    const el = await render({})
+    expect(el.querySelector('[data-testid="dev-item"]')).toBeNull()
   })
 })

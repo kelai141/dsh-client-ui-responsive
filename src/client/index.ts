@@ -25,6 +25,7 @@ import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
 import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
 import { COMPOSER_INSETS_CSS } from './composer-insets.css.ts'
 import { TRAJECTORY_DETAILS_CSS } from './trajectory-details.css.ts'
+import { TrajectoryPanelsObserver } from './trajectory-panels-observer.ts'
 import { MenuViewportGuard } from './menu-viewport-guard.ts'
 import { SESSION_LOG_DIALOG_HIDE_CSS } from './session-log-dialog.css.ts'
 import { DevSection } from './dev-section/DevSection.tsx'
@@ -104,6 +105,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * `id` is added beside the shipped entries instead of replacing them.
      */
     'shell.overlay': { kind: 'list'; scope: 'root' }
+    /**
+     * Developer-options child seat (2026-08-23): feature-owned blocks under the
+     *「开发者选项」section — ADB authorization panel etc. Listed like the
+     * general.item seat the shell declares; registered by dsh-android-bridge.
+     */
+    'settings.dev.item': { kind: 'list'; scope: 'root' }
   }
 }
 
@@ -128,7 +135,7 @@ export interface ConvOwnerProps {}
 export interface DetailsOwnerProps {}
 
 /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
-export const inject = ['slots', 'theme']
+export const inject = ['slots', 'theme', 'sessions']
 
 /**
  * Client plugin body: provide ctx.layout, then one register() call — AppFrame
@@ -194,6 +201,8 @@ export function apply(ctx: ClientContext): void {
     id: 'android-dev',
     order: 99,
     label: () => '开发者选项',
+    // 开发者选项子区（2026-08-23）：ADB 授权面板等安卓调试设施挂进此槽——不开独立导航行。
+    children: { 'settings.dev.item': { kind: 'list', scope: 'root' } },
   }, DevSection))
 
   // Android general-settings rows (issue #59): font-size slider + immersive
@@ -246,8 +255,15 @@ export function apply(ctx: ClientContext): void {
     style.setAttribute('data-plugin', 'trajectory-details')
     style.textContent = TRAJECTORY_DETAILS_CSS
     document.head.appendChild(style)
-    return () => { style.remove() }
-  }, 'ui-layout: trajectory details full-viewport overlay')
+    // 旧 WebView 不认 :has()（#17 回归，MIUI12/Chromium 83）：class 降级路径兜底。
+    const ledger = document.querySelector<HTMLElement>('[class*="ledger"]')
+    const observer = new TrajectoryPanelsObserver(ledger)
+    observer.attach()
+    return () => {
+      observer.detach()
+      style.remove()
+    }
+  }, 'ui-layout: trajectory details full-viewport overlay + :has() fallback')
 
   // Mobile chrome occupies the top viewport edge; keep an upward-opening
   // command menu below it rather than hiding its first rows beneath the bar.
@@ -324,6 +340,53 @@ export function apply(ctx: ClientContext): void {
       return {}
     },
   }, ExportResultDialog))
+
+  // PRD F5 消费端（2026-08-23 补齐）：外部文件/图片 → 宿主 dsh-android-file-open 已创建
+  // 强制新会话（种子消息 = @文件路径 + 上下文）。本消费端轮询 GET /api/android/file-incoming，
+  // 对带 sessionId 的条目：自动切到该会话（绝不并入既有会话）→ claim 删除条目。
+  // 失败重试（会话可能尚未同步进客户端列表）；非安卓宿主无该端点时静默跳过。
+  ctx.effect(() => {
+    const opened = new Set<string>()
+    let busy = false
+    const poll = async (): Promise<void> => {
+      if (busy) return
+      busy = true
+      try {
+        const r = await fetch('/api/android/file-incoming')
+        if (!r.ok) return
+        const j = (await r.json().catch(() => null)) as { items?: Array<{ sessionId?: string; file?: string }> } | null
+        if (!j?.items) return
+        for (const item of j.items) {
+          if (!item.sessionId || opened.has(item.sessionId)) continue
+          try {
+            ctx.sessions.open(item.sessionId as never)
+            opened.add(item.sessionId)
+            void fetch('/api/android/file-incoming/claim', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ file: item.file }),
+            }).catch(() => { /* claim 失败（条目已删/端点缺）不阻断 */ })
+          } catch {
+            /* 会话尚未同步进列表：下轮重试 */
+          }
+        }
+      } catch {
+        /* 端点不存在（桌面/非壳宿主）：静默 */
+      } finally {
+        busy = false
+      }
+    }
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void poll() }, 4000)
+    const onVisible = (): void => { if (document.visibilityState === 'visible') void poll() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    void poll()
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  }, 'ui-responsive: file-incoming consumer (F5)')
 
   ctx.effect(() => {
     const onResult = (event: Event): void => {

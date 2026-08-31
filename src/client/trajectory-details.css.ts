@@ -33,8 +33,15 @@ export const TRAJECTORY_DETAILS_CSS: string = `
      top bar (z3), the tabs and the timeline bar (z1) — the banner then
      covers the panel and the tabs/timeline stay visible above it. While the
      panel is open, raise the ledger itself so the whole subtree (panel
-     included) covers them. */
+     included) covers them.
+     2026-08-23 (#17 回归修复)：:has() 是 Chromium 105+；MIUI12 旧 WebView
+     (Chromium 83) 整条规则被丢弃 → 面板遮挡回归。保留 :has() 路径（新内核
+     零开销，无 JS 依赖）并追加 class 路径（旧内核由 TrajectoryPanelsObserver
+     在面板开合时切换 data-mobile-ledger-raised）。 */
   [data-mobile] [class*="ledger"]:has(aside[aria-label="Event details"]) {
+    z-index: 12;
+  }
+  [data-mobile] [class*="ledger"].data-mobile-ledger-raised {
     z-index: 12;
   }
 }
