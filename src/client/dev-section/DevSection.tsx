@@ -46,6 +46,15 @@ export function DevSection({ renderSlot }: DevSectionProps) {
       return false
     }
   })
+  // 0.13.2 W7：悬浮球开关（壳侧持久化 + overlay 权限引导；未授权返回 false 并自动跳系统设置）。
+  const [overlayOn, setOverlayOn] = useState<boolean>(() => {
+    try {
+      return window.androidBridge?.getOverlayEnabled?.() ?? false
+    } catch {
+      return false
+    }
+  })
+  const [overlayMsg, setOverlayMsg] = useState<string | null>(null)
   const [restarting, setRestarting] = useState(false)
   const [allFiles, setAllFiles] = useState<boolean | null>(null)
   const [confirm, setConfirm] = useState<'restart' | 'close' | null>(null)
@@ -148,6 +157,24 @@ export function DevSection({ renderSlot }: DevSectionProps) {
     }
   }, [])
 
+  // 0.13.2 W7：悬浮球开关（实时查看 AI 工具调用 + 停止）。
+  const toggleOverlay = useCallback((enabled: boolean) => {
+    setOverlayOn(enabled)
+    setOverlayMsg(null)
+    try {
+      const started = window.androidBridge?.setOverlayEnabled?.(enabled) ?? false
+      if (enabled && !started) {
+        setOverlayMsg('未授予悬浮窗权限——已打开系统授权页，返回后自动生效（也可在开发者选项重新开关）')
+      } else if (enabled) {
+        setOverlayMsg('悬浮球已开启：任意界面可拖拽；点开面板实时查看工具调用，可一键停止')
+      } else {
+        setOverlayMsg('悬浮球已关闭')
+      }
+    } catch {
+      setOverlayMsg('桥不可用（仅安卓宿主支持悬浮球）')
+    }
+  }, [])
+
   // 0.13.1 W4：配置导入/导出（安全手改通道——引擎读私有目录，外部改共享副本无效）。
   const [configMsg, setConfigMsg] = useState<string | null>(null)
 
@@ -208,6 +235,17 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         />
         <span>开发者调试日志</span>
       </label>
+
+      {/* 0.13.2 W7：悬浮球（实时工具流 + 停止） */}
+      <label className="dsh-dev-row dsh-dev-switch">
+        <input
+          type="checkbox"
+          checked={overlayOn}
+          onChange={(e) => toggleOverlay(e.target.checked)}
+        />
+        <span>悬浮球（实时查看 AI 工作，可一键停止）</span>
+      </label>
+      {overlayMsg !== null && <p className="dsh-dev-hint">{overlayMsg}</p>}
 
       {/* 0.13.1 W4：配置导入/导出（安全手改通道；引擎读私有目录，改共享目录副本无效） */}
       <div className="dsh-dev-row">

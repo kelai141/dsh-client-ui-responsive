@@ -30,6 +30,11 @@ export interface AndroidShellBridge {
   setTextZoom?: (percent: number) => void
   /** Immersive status-bar toggle (true = status bar normally hidden), persisted by the shell. */
   setImmersiveMode?: (enable: boolean) => void
+  /** 0.13.2 W7: floating-ball toggle state (persisted by the shell). */
+  getOverlayEnabled?: () => boolean
+  /** 0.13.2 W7: floating-ball toggle; returns whether the overlay actually started
+   *  (false = SYSTEM_ALERT_WINDOW not granted — the shell opens the settings page). */
+  setOverlayEnabled?: (enable: boolean) => boolean
 }
 
 declare global {
