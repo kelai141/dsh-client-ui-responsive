@@ -56,7 +56,7 @@ export const DEV_SECTION_CSS: string = `
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.45);
-  padding: 20px;
+  padding: calc(20px + var(--dsh-mobile-top-inset, 0px)) 20px 20px;
 }
 
 .dsh-dev-modal {

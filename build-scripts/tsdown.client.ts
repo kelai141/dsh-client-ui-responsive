@@ -27,10 +27,14 @@ const CSS_VIRTUAL_SUFFIX = '.mjs'
 /**
  * Wire/type layers a client bundle may inline: browser-safe contracts
  * with no runtime identity to share (no Symbol/instanceof/singleton state).
- * Everything else under @deepseek-ai/* is either a module-table entry
- * (external) or a leak the purity gate rejects.
+ * 0.13.3 adds `client-store`: the store engine (createSnapshotStore/defineStore/
+ * shallowEqual/notifySubscribers) was rehomed out of client-runtime into its own
+ * package upstream (TODO(webload/store-rehome) landed in 0.1.2-rc.1), and the
+ * official ui-layout/ui-conversation bundles inline it the same way. Everything
+ * else under @deepseek-ai/* is either a module-table entry (external) or a leak
+ * the purity gate rejects.
  */
-export const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|brand)(\/|$)/
+export const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|brand|client-store)(\/|$)/
 
 /**
  * Vendored framework libraries: rescoped into @deepseek-ai, so the gate below
@@ -50,19 +54,16 @@ const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
 const SKIP_WORKSPACE_BUILD: UserConfig = { entry: '' }
 
 /**
- * Documented TEMPORARY exemption, not a platform module (hence not in
- * platform.ts): the snapshot-store engine (createSnapshotStore/defineStore/
- * shallowEqual) lives in runtime pending its promotion-time rehoming, and
- * five importers (locale, ui-layout, ui-conversation ×3) ride this single
- * exemption. At runtime the lazy CJS table answers the require natively:
- * runtime is an immediately-tier row, its factory is registered before any
- * dependent bundle materializes. TODO(webload/store-rehome): remove with the
- * store-engine relocation follow-up.
+ * 0.13.3: the TEMPORARY runtime-store exemption is RETIRED. The rc.1 loader's
+ * module table no longer answers `require("@deepseek-ai/dsh-client-runtime/client")`
+ * (client-runtime is not a web-combo row; the old immediately-tier factory
+ * registration is gone), and upstream completed the store-engine relocation —
+ * `@deepseek-ai/dsh-client-store` (inlined via INLINE_SAFE, matching the official
+ * ui-layout/ui-conversation rc.1 bundles). Keeping the exemption produces a
+ * require the loader rejects: "missed the module table — build-time externals
+ * drift" (0.13.3 模拟器实测的 boot 硬阻断).
  */
-const RUNTIME_STORE_EXEMPTION = '@deepseek-ai/dsh-client-runtime/client'
-
-/** Externals resolved from the loader module table: the platform seed entries plus the documented runtime exemption. */
-export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES, RUNTIME_STORE_EXEMPTION]
+export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES]
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('..', import.meta.url))
 

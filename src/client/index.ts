@@ -7,7 +7,9 @@
  * with the runtime sessions service. Later effects seat the theme presenter
  * (projecting ctx.theme snapshots onto document.body) and other UI fixes.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// 0.13.3：ClientContext 迁至 cordis Context（store-rehome 后官方 client 包同款——
+// 旧 client-runtime/client 类型面在 rc.1 loader 的 module table 已不可达）。
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PanelActions } from './service.ts'
@@ -26,7 +28,7 @@ import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
 import { COMPOSER_INSETS_CSS } from './composer-insets.css.ts'
 import { TRAJECTORY_DETAILS_CSS } from './trajectory-details.css.ts'
 import { TrajectoryPanelsObserver } from './trajectory-panels-observer.ts'
-import { MenuViewportGuard } from './menu-viewport-guard.ts'
+import { ComposerPopupGuard } from './composer-popup-guard.ts'
 import { SESSION_LOG_DIALOG_HIDE_CSS } from './session-log-dialog.css.ts'
 import { DevSection } from './dev-section/DevSection.tsx'
 import { DEV_SECTION_CSS } from './dev-section/dev-section.css.ts'
@@ -205,11 +207,11 @@ export function apply(ctx: ClientContext): void {
     children: { 'settings.dev.item': { kind: 'list', scope: 'root' } },
   }, DevSection))
 
-  // Android general-settings rows (issue #59): font-size slider + immersive
-  // status-bar toggle. The upstream General section lost these two rows; the
-  // shell bridges (setTextZoom / setImmersiveMode) exist and persist, the UI
-  // never called them. Registered into settings.general.item with a low order
-  // so the rows appear after the built-in items.
+  // Android general-settings rows (issue #59): immersive status-bar toggle.
+  // 0.13.3 (D6): the font-size slider retired — upstream ui-theme fontSize
+  // (12–17px) covers it natively; the shell's setTextZoom bridge is gone.
+  // The setImmersiveMode shell bridge persists, the UI registers the row at
+  // settings.general.item with a low order so it appears after the built-ins.
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item',
     id: 'android-general',
@@ -265,13 +267,15 @@ export function apply(ctx: ClientContext): void {
     }
   }, 'ui-layout: trajectory details full-viewport overlay + :has() fallback')
 
-  // Mobile chrome occupies the top viewport edge; keep an upward-opening
-  // command menu below it rather than hiding its first rows beneath the bar.
+  // Composer popups (slash menu + model menu) anchor to their trigger, not the
+  // viewport: keep them inside the viewport horizontally, keep the painted card
+  // as narrow as its content, and keep the first rows below the mobile top bar
+  // (issue apk#135).
   ctx.effect(() => {
-    const guard = new MenuViewportGuard()
+    const guard = new ComposerPopupGuard()
     guard.attach()
     return () => { guard.detach() }
-  }, 'ui-layout: mobile command menu top clearance')
+  }, 'ui-layout: composer popup geometry guard')
 
   // Session-log export: the shell owns the only result dialog (success/failure
   // via window.__dshExportResult). Hide the upstream preparing/success/error

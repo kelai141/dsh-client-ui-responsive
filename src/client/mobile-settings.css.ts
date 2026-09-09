@@ -21,10 +21,15 @@
  */
 export const MOBILE_SETTINGS_CSS: string = `
   [class*="mobileDrawer"] [role='dialog'][aria-modal='true'] {
+    box-sizing: border-box;
     width: 100vw;
     max-width: none;
+    /* The panel is centred by its fixed overlay, so shrinking the height would
+       move its header back under the status bar. Keep the full height and inset
+       the content instead: border-box keeps the total box at 100vh. */
     height: 100vh;
     max-height: none;
+    padding-top: var(--dsh-mobile-top-inset, 0px);
     border-radius: 0;
     flex-direction: column;
   }
