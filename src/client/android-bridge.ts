@@ -26,8 +26,6 @@ export interface AndroidShellBridge {
   importConfig?: () => string
   /** Whether "All Files Access" is granted (prerequisite for external workspaces / public logs). */
   hasAllFilesAccess?: () => boolean
-  /** Set the WebView font scale (textZoom, 50–200), persisted by the shell; Settings → General slider. */
-  setTextZoom?: (percent: number) => void
   /** Immersive status-bar toggle (true = status bar normally hidden), persisted by the shell. */
   setImmersiveMode?: (enable: boolean) => void
   /** 0.13.2 W7: floating-ball toggle state (persisted by the shell). */

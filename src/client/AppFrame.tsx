@@ -89,6 +89,7 @@ export function AppFrame({
   useSessions,
   actions,
   renderSlot,
+  SessionProvider,
 }: AppFrameProps) {
   const panels = useStore(s => s)
   const detailsSession = useSessions((s) => {
@@ -187,7 +188,7 @@ export function AppFrame({
         </div>
         <div className={css.mobileSheet} data-open={sheetOpen || undefined}>
           <div className={css.mobileSheetGrab} onClick={() => actions.closeDetails()} />
-          {renderSlot('details', {})}
+          <SessionProvider>{renderSlot('details', {})}</SessionProvider>
         </div>
         <div className={css.mobileMask} data-open={panels.drawerOpen || undefined} onClick={() => actions.toggleSidebar()} />
         <div className={css.mobileDrawer} data-open={panels.drawerOpen || undefined}>
@@ -227,7 +228,7 @@ export function AppFrame({
             is session-maybe; the strict details entry naturally renders
             empty while no session is current. */}
         <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
-        <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
+        <DetailsColumn><SessionProvider>{renderSlot('details', {})}</SessionProvider></DetailsColumn>
       </>
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}

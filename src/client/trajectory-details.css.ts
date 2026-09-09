@@ -22,7 +22,7 @@ export const TRAJECTORY_DETAILS_CSS: string = `
     max-width: 100%;
     border-left: none;
     box-shadow: none;
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: var(--dsh-mobile-top-inset, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   [data-mobile] aside[aria-label="Event details"] [aria-label="Resize event details"] {

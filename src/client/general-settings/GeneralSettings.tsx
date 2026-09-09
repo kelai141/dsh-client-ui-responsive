@@ -1,18 +1,17 @@
 /**
  * General-settings additions for the Android shell (issue #59): the upstream
- * Settings → General section lost its two Android-only rows — the font-size
- * slider (WebView textZoom, 50–200%) and the immersive status-bar toggle.
- * The shell bridges exist (androidBridge.setTextZoom / setImmersiveMode, both
- * persisted by MainActivity), but no settings page ever registered the rows.
- * Registered at the upstream settings.general.item extension point (auto
- * projected into the General section nav), mirroring DevSection.
+ * Settings → General section lost the Android-only immersive status-bar toggle.
+ * The shell bridge exists (androidBridge.setImmersiveMode, persisted by
+ * MainActivity) and the row registers at the upstream settings.general.item
+ * extension point (auto projected into the General section nav), mirroring
+ * DevSection.
  *
- * The slider reflects the persisted value only while the page lives; the
- * shell persists textZoom in SharedPreferences and applies it at startup, so
- * there is no getter — the UI starts at 100% and the slider is an action
- * control, not a mirror. The immersive toggle reads localStorage
- * (dsh.android.immersive, written by the patched index.html immersive script)
- * for its initial state.
+ * 0.13.3 (D6 收益省略): the font-size slider (WebView textZoom, 50–200%)
+ * retired — upstream ui-theme now ships a native fontSize field (12–17px
+ * content font size) rendered in the Appearance section with persistence.
+ * The shell's setTextZoom bridge and persistence were removed with it.
+ * The immersive toggle reads localStorage (dsh.android.immersive, written by
+ * the patched index.html immersive script) for its initial state.
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -24,9 +23,6 @@ import type {} from '../android-bridge.ts'
 /** Full section props: the settings shell supplies only `close`. */
 export type GeneralSettingsProps = PropsRuntime<'settings.general.item'>
 
-const TEXT_ZOOM_MIN = 50
-const TEXT_ZOOM_MAX = 200
-const TEXT_ZOOM_STEP = 10
 const IMMERSIVE_KEY = 'dsh.android.immersive'
 
 /** Read the persisted immersive flag with the same default the shell uses (true). */
@@ -39,26 +35,15 @@ function readImmersive(): boolean {
 }
 
 /**
- * Render the Android general-settings rows (font slider + immersive toggle).
+ * Render the Android general-settings rows (immersive toggle).
  * @param props - composed slot props (contract/slots.ts).
  * @returns the section element tree.
  */
 export function GeneralSettings(_props: GeneralSettingsProps) {
-  const [textZoom, setTextZoom] = useState<number>(100)
   const [immersive, setImmersive] = useState<boolean>(readImmersive)
 
   useEffect(() => {
     setImmersive(readImmersive())
-  }, [])
-
-  const applyTextZoom = useCallback((percent: number) => {
-    const clamped = Math.min(TEXT_ZOOM_MAX, Math.max(TEXT_ZOOM_MIN, percent))
-    setTextZoom(clamped)
-    try {
-      window.androidBridge?.setTextZoom?.(clamped)
-    } catch {
-      /* bridge absent: desktop fallback no-op */
-    }
   }, [])
 
   const toggleImmersive = useCallback((enabled: boolean) => {
@@ -77,21 +62,6 @@ export function GeneralSettings(_props: GeneralSettingsProps) {
 
   return (
     <div data-plugin="android-general">
-      <div className="dsh-dev-row">
-        <label className="dsh-dev-label" htmlFor="dsh-text-zoom">字体大小</label>
-        <input
-          id="dsh-text-zoom"
-          type="range"
-          min={TEXT_ZOOM_MIN}
-          max={TEXT_ZOOM_MAX}
-          step={TEXT_ZOOM_STEP}
-          value={textZoom}
-          onChange={(e) => applyTextZoom(Number(e.currentTarget.value))}
-        />
-        <span className="dsh-dev-value">{textZoom}%</span>
-      </div>
-      <p className="dsh-dev-hint">调整页面字体缩放（50–200%），立即生效并持久化。</p>
-
       <label className="dsh-dev-row dsh-dev-switch">
         <input
           type="checkbox"

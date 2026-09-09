@@ -5,7 +5,7 @@
  * `shell.overlay` entry. Module level exports the factory only — a module-level
  * handle would pin store identity across plugin reloads.
  */
-import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
+import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
 
 /** Wire payload pushed by the Android shell (JSON-serializable only). */
 export type ExportResultPayload = {
