@@ -63,7 +63,7 @@ describe('composerPopupMaxHeight', () => {
 /** Build the composer DOM the guard looks for and pin the measured geometry. */
 function mountComposer(rect: { left: number; right: number; bottom: number }): { card: HTMLElement; listbox: HTMLElement } {
   document.body.innerHTML = `
-    <div data-mobile-topbar=""><button>menu</button></div>
+    <div data-dsh-mobile-topbar=""><button>menu</button></div>
     <div data-composer-card="">
       <div class="surface"><div role="listbox"><div>items</div></div></div>
     </div>`
@@ -124,7 +124,7 @@ describe('ComposerPopupGuard', () => {
   })
 
   it('does nothing without a composer card', async () => {
-    document.body.innerHTML = '<div data-mobile-topbar=""></div>'
+    document.body.innerHTML = '<div data-dsh-mobile-topbar=""></div>'
     guard = new ComposerPopupGuard()
     guard.attach()
     await flush()

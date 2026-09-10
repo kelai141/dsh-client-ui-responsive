@@ -1,27 +1,33 @@
 /**
- * Layout plugin, browser half: one register() call contributes AppFrame into
- * the runtime's built-in 'root' slot and, in the same breath, declares the
- * four child slots (declaration = exclusive render authority), seats the
- * layout store (panel geometry), and wires the panel-action service face.
- * ctx.layout is the cross-plugin panel-action contract; navigation state lives
- * with the runtime sessions service. Later effects seat the theme presenter
- * (projecting ctx.theme snapshots onto document.body) and other UI fixes.
+ * Android mobile adaptation layer over the upstream frame.
+ *
+ * 0.2.0 de-forked this plugin: 0.1.5 turned `ui-layout` into the layout service
+ * hub (`ctx.layout`, the keyed `main` panel seat, the right column's
+ * track/fullscreen reporting), and the previous fork of its AppFrame had to
+ * reproduce that whole surface. The plugin now keeps upstream's frame and adds
+ * only what a phone needs:
+ *
+ * - a phone form (<768px) in CSS: the left sidebar becomes an off-canvas drawer,
+ *   the centre column spans the frame, and the right Sidebar keeps upstream's own
+ *   fullscreen slide-over (its threshold is the same 768px);
+ * - one top-bar entry for that drawer (`shell.overlay`), so no control is added
+ *   to the sidebar rail or the composer row;
+ * - the native "open with" wiring: a Session-header action for the workspace
+ *   directory and an `extension`-band tab type for files no preview can show;
+ * - the pre-existing Android fixes (composer popups, insets, keyboard boundary,
+ *   Enter guard, theme bridge, developer section, export-result dialog, external
+ *   file delivery).
+ *
+ * Nothing here provides `ctx.layout` any more: the upstream plugin owns it, and
+ * a second provider would fail the composition.
  */
-// 0.13.3：ClientContext 迁至 cordis Context（store-rehome 后官方 client 包同款——
-// 旧 client-runtime/client 类型面在 rc.1 loader 的 module table 已不可达）。
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
-import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import type { PanelActions } from './service.ts'
-import { AppFrame } from './AppFrame.tsx'
-import { createLayoutStore } from './stores.ts'
-import { LayoutController } from './service.ts'
-import { ThemePresenter } from './theme-presenter.ts'
-import { ThemeBridge } from './theme-bridge.ts'
-import { EnterGuard } from './enter-guard.ts'
-import { KeyboardBoundary } from './keyboard-boundary.ts'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { ExportResultDialog } from './ExportResultDialog.tsx'
-import { createExportResultStore, type ExportResultPayload } from './export-result.ts'
 import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
 import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
 import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
@@ -33,14 +39,20 @@ import { SESSION_LOG_DIALOG_HIDE_CSS } from './session-log-dialog.css.ts'
 import { DevSection } from './dev-section/DevSection.tsx'
 import { DEV_SECTION_CSS } from './dev-section/dev-section.css.ts'
 import { GeneralSettings } from './general-settings/GeneralSettings.tsx'
+import { ThemeBridge } from './theme-bridge.ts'
+import { EnterGuard } from './enter-guard.ts'
+import { KeyboardBoundary } from './keyboard-boundary.ts'
+import { ExportResultChannel, reportUserFacingResult, type ExportResultPayload } from './export-result.ts'
+import { MobileFormMarker } from './mobile/form-marker.ts'
+import { MOBILE_FORM_CSS } from './mobile/mobile-form.css.ts'
+import { MobileChrome, type MobileChromeInjected } from './mobile/MobileChrome.tsx'
+import { OpenInFileManagerAction } from './mobile/OpenInFileManagerAction.tsx'
+import { EXTERNAL_OPEN_ID, externalOpenDefinition } from './mobile/external-open-paths.ts'
+import { ExternalOpenTab } from './mobile/external-open.tsx'
 
-// Contract exports only (export-convergence rule: cross-package consumers
-// keep a symbol exported; test-only/package-internal symbols live off /src).
-// ILayout: the ctx.layout face consumers and test fakes type against.
-// OwnerShare contracts below are the render-side halves registrants compose
-// against; the frame components and the store factory are package-internal.
-export { LayoutController } from './service.ts'
-export type { ILayout } from './service.ts'
+// Contract exports only (export-convergence rule): the plugin surface is
+// `apply` and `inject`; every component, marker, and helper stays internal.
+export { MOBILE_FORM_MAX_WIDTH } from './mobile/form-marker.ts'
 
 declare global {
   interface Window {
@@ -49,155 +61,116 @@ declare global {
   }
 }
 
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    /** The outward face only; the concrete service stays inside this plugin. */
-    layout: import('./service.ts').ILayout
-  }
+/** Required services: composition, copy/theme faces, the runtime sessions, and the frame's panel actions. */
+export const inject = ['slots', 'theme', 'sessions', 'layout']
+
+/** Append one stylesheet and return its disposer. */
+function injectStyle(id: string, css: string): () => void {
+  const style = document.createElement('style')
+  style.setAttribute('data-plugin', id)
+  style.textContent = css
+  document.head.appendChild(style)
+  return () => { style.remove() }
 }
-
-declare module '@deepseek-ai/dsh-client-ui-slots' {
-  interface SlotMap {
-    // The 'root' entry itself is the runtime's built-in slot (declared
-    // there); these four are the frame's children, declared by the same
-    // register() call that contributes AppFrame. Session owners never pass
-    // sessionId: the framework injects it as a standard prop.
-    /**
-     * The whole left column. OCCUPIED by ui-sidebar's SidebarRoot, which
-     * declares the workspace and settings seats inside it — registering here
-     * replaces the navigation column outright rather than adding to it, and
-     * the seats it declares disappear with it. To add something to the
-     * sidebar, register into one of those inner seats instead.
-     *
-     * The occupant receives the frame's live column state (collapsed, width)
-     * and is expected to render the compact control rail while collapsed.
-     */
-    'sidebar': { kind: 'single'; scope: 'root'; owner: SidebarOwnerProps }
-    /**
-     * The whole center column, across both the no-session hero and a live
-     * conversation. OCCUPIED by ui-conversation's ConversationRoot, which
-     * declares the session body, composer, and input seats inside it —
-     * registering here replaces the entire conversation surface (and removes
-     * every seat it declares) rather than adding to it.
-     *
-     * Current-session-optional: the occupant owns both states without
-     * changing its React identity, so it keeps its own state across a session
-     * switch. It receives no owner props; session facts arrive through the
-     * framework hooks of the `session-maybe` scope.
-     */
-    'conversation': { kind: 'single'; scope: 'session-maybe'; owner: ConvOwnerProps }
-    /**
-     * The right details column, shown when the layout opens it. OCCUPIED by
-     * ui-conversation's DetailsPanel, which declares the tool-details seat
-     * inside it — registering here replaces the column and takes that seat
-     * with it. Absent an occupant the column renders nothing.
-     *
-     * No owner props: the framework injects the session id and hooks for the
-     * `session` scope, and `ctx.layout` owns whether the column is open.
-     */
-    'details': { kind: 'single'; scope: 'session'; owner: DetailsOwnerProps }
-    /**
-     * Frame-wide floating layer, above every column and outside their scroll
-     * containers. Deliberately generic and unowned by any feature: a badge, a
-     * toast stack or a status pill all belong here, and entries order among
-     * themselves. The layer itself is click-through — entries opt back into
-     * pointer events — so an occupant never blocks the app underneath.
-     *
-     * This is the additive seat for a frame-wide surface of your own: a fresh
-     * `id` is added beside the shipped entries instead of replacing them.
-     */
-    'shell.overlay': { kind: 'list'; scope: 'root' }
-    /**
-     * Developer-options child seat (2026-08-23): feature-owned blocks under the
-     *「开发者选项」section — ADB authorization panel etc. Listed like the
-     * general.item seat the shell declares; registered by dsh-android-bridge.
-     */
-    'settings.dev.item': { kind: 'list'; scope: 'root' }
-  }
-}
-
-// OwnerShare contracts — the render-side share the slot owner supplies at
-// renderSlot. Registrants IMPORT these and compose their full component props
-// through the four-share intersection (PropsRuntime & PropsRenderSlots &
-// PropsStore & I). Conversation business state and actions arrive through
-// framework-standard hooks and each registrant's inject face, not owner props.
-
-/** Sidebar owner share: live column state from the frame's concession solve. */
-export interface SidebarOwnerProps {
-  /** True when the sidebar is closed (the column renders the compact control rail). */
-  collapsed: boolean
-  /** Rendered column width in px (SIDEBAR_COLLAPSED when collapsed). */
-  width: number
-}
-
-/** Conversation owner share: business state and actions belong to the registrant. */
-export interface ConvOwnerProps {}
-
-/** Details owner share: empty — sessionId arrives as a framework-standard prop. */
-export interface DetailsOwnerProps {}
-
-/** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
-export const inject = ['slots', 'theme', 'sessions']
 
 /**
- * Client plugin body: provide ctx.layout, then one register() call — AppFrame
- * into 'root' with the four child-slot declarations, the layout store seat,
- * and the inject hook that hands the store's bound actions to the service.
+ * Client plugin body: the Android adaptation layer over the upstream frame.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  const layout = new LayoutController()
+  // ── Phone form ──────────────────────────────────────────────────────────
+
+  // The narrow-form stylesheet: track/drawer geometry plus the top-inset and
+  // top-bar variables the other sheets consume.
+  ctx.effect(() => injectStyle('mobile-form', MOBILE_FORM_CSS), 'ui-responsive: mobile form styles')
+
+  // The mobile-form marker publishes `data-dsh-mobile-form` on <html> and tags
+  // the upstream frame root, which carries no stable hook of its own.
   ctx.effect(() => {
-    const disposeService = ctx.reflect.provide('layout', layout)
-    const disposeRegistration = ctx.slots.register({
-      name: 'root',
-      children: {
-        'sidebar': { kind: 'single', scope: 'root' },
-        'conversation': { kind: 'single', scope: 'session-maybe' },
-        'details': { kind: 'single', scope: 'session' },
-        'shell.overlay': { kind: 'list', scope: 'root' },
-      },
-      // Exclusive store: the factory itself — the framework instantiates per
-      // entry and delivers useStore/actions to AppFrame as standard props.
-      store: createLayoutStore,
-      // The hook's only side effect connects the root store to ctx.layout;
-      // conversation business actions belong to their registrants.
-      inject: (actions: PanelActions) => {
-        layout.attachPanels(actions)
-        return {}
-      },
-    }, AppFrame)
-    return () => {
-      disposeRegistration()
-      // provide()'s disposer settles asynchronously; teardown is synchronous fire-and-forget.
-      void disposeService()
-    }
-  }, 'ui-layout: service + root registration')
+    const marker = new MobileFormMarker()
+    marker.attach()
+    return () => { marker.detach() }
+  }, 'ui-responsive: mobile form marker')
 
   // Mobile settings-panel adaptation: the upstream settings modal is a
   // fixed 800px two-column panel; below the mobile breakpoint it is
   // re-shaped to a single column (nav strip scrolls horizontally). The
   // upstream CSS Modules class names are hashed and unreachable from here,
   // so the stylesheet targets the dialog's ARIA attributes instead.
+  ctx.effect(() => injectStyle('mobile-settings', MOBILE_SETTINGS_CSS), 'ui-responsive: mobile settings styles')
+
+  // Composer control-row narrow fix: the 176px model pill overlaps the
+  // permission pill below the 400px breakpoint; cap it on phones.
+  ctx.effect(() => injectStyle('composer-row', COMPOSER_ROW_CSS), 'ui-responsive: composer row narrow fix')
+
+  // Composer insets adaptation: pad composer seat with system bottom / IME bottom.
+  ctx.effect(() => injectStyle('composer-insets', COMPOSER_INSETS_CSS), 'ui-responsive: composer insets adaptation')
+
+  // Composer command-menu scroll fix: the upstream menu viewport lacks
+  // flex:1, so an over-long candidate list is clipped unscrollable.
+  ctx.effect(() => injectStyle('composer-menu', COMPOSER_MENU_CSS), 'ui-responsive: composer menu scroll fix')
+
+  // Composer popups (slash menu + model menu) anchor to their trigger, not the
+  // viewport: keep them inside the viewport horizontally, keep the painted card
+  // as narrow as its content, and keep the first rows below the mobile top bar
+  // (issue apk#135).
   ctx.effect(() => {
-    const style = document.createElement('style')
-    style.setAttribute('data-plugin', 'mobile-settings')
-    style.textContent = MOBILE_SETTINGS_CSS
-    document.head.appendChild(style)
-    return () => { style.remove() }
-  }, 'ui-layout: mobile settings styles')
+    const guard = new ComposerPopupGuard()
+    guard.attach()
+    return () => { guard.detach() }
+  }, 'ui-responsive: composer popup geometry guard')
+
+  // Trajectory local details panel (issue apk#67): on narrow screens the
+  // upstream panel is confined between the timeline bar and the composer seat.
+  // Overlay it full-viewport so it has real reading space (fixed escapes the
+  // ledger; the panel's own body scrolls).
+  ctx.effect(() => {
+    const disposeStyle = injectStyle('trajectory-details', TRAJECTORY_DETAILS_CSS)
+    // 旧 WebView 不认 :has()（#17 回归，MIUI12/Chromium 83）：class 降级路径兜底。
+    const ledger = document.querySelector<HTMLElement>('[class*="ledger"]')
+    const observer = new TrajectoryPanelsObserver(ledger)
+    observer.attach()
+    return () => {
+      observer.detach()
+      disposeStyle()
+    }
+  }, 'ui-responsive: trajectory details full-viewport overlay + :has() fallback')
+
+  // Mobile Enter guard: on the mobile form the soft-keyboard Enter key must
+  // insert a newline instead of submitting — the send button is the only
+  // send channel. Desktop and command-menu/IME paths stay untouched.
+  ctx.effect(() => {
+    const guard = new EnterGuard()
+    guard.attach()
+    return () => { guard.detach() }
+  }, 'ui-responsive: mobile enter guard')
+
+  // Mobile keyboard boundary (issue #57): while the IME is open the frame keeps
+  // its 100% height (the layout viewport does not shrink on Android 16
+  // edge-to-edge), leaving a scrollable blank band under the composer. Pin the
+  // frame to the visualViewport height while an IME inset is present so the
+  // blank band is clipped instead of scrolled into view.
+  ctx.effect(() => {
+    const boundary = new KeyboardBoundary()
+    boundary.attach()
+    return () => { boundary.detach() }
+  }, 'ui-responsive: mobile keyboard boundary')
+
+  // Theme bridge: prefers-color-scheme → OS dark state on WebViews whose
+  // media query does not track uiMode (vivo/Android 16 observed). The shell
+  // pushes window.__dshThemeBridge.setDark() on Configuration changes.
+  ctx.effect(() => {
+    const bridge = new ThemeBridge()
+    bridge.install()
+    return () => { /* the hook is global and idempotent: no teardown needed */ }
+  }, 'ui-responsive: theme bridge')
+
+  // ── Developer options and Android general settings ──────────────────────
 
   // Developer options: a settings page on the upstream official
   // settings.section extension point — the shell projects the nav row from
   // the registration options, so no upstream DOM injection is needed.
-  // Android shell facilities: restart engine / reload UI / console / dev log.
-  ctx.effect(() => {
-    const style = document.createElement('style')
-    style.setAttribute('data-plugin', 'dev-section')
-    style.textContent = DEV_SECTION_CSS
-    document.head.appendChild(style)
-    return () => { style.remove() }
-  }, 'ui-layout: dev section styles')
+  ctx.effect(() => injectStyle('dev-section', DEV_SECTION_CSS), 'ui-responsive: dev section styles')
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'android-dev',
@@ -209,9 +182,8 @@ export function apply(ctx: ClientContext): void {
 
   // Android general-settings rows (issue #59): immersive status-bar toggle.
   // 0.13.3 (D6): the font-size slider retired — upstream ui-theme fontSize
-  // (12–17px) covers it natively; the shell's setTextZoom bridge is gone.
-  // The setImmersiveMode shell bridge persists, the UI registers the row at
-  // settings.general.item with a low order so it appears after the built-ins.
+  // (12–17px) covers it natively. The setImmersiveMode shell bridge persists,
+  // and the UI registers the row at settings.general.item after the built-ins.
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item',
     id: 'android-general',
@@ -219,131 +191,101 @@ export function apply(ctx: ClientContext): void {
     label: () => 'Android 显示',
   }, GeneralSettings))
 
-  // Composer control-row narrow fix: the 176px model pill overlaps the
-  // permission pill below the 400px breakpoint; cap it on phones.
-  ctx.effect(() => {
-    const style = document.createElement('style')
-    style.setAttribute('data-plugin', 'composer-row')
-    style.textContent = COMPOSER_ROW_CSS
-    document.head.appendChild(style)
-    return () => { style.remove() }
-  }, 'ui-layout: composer row narrow fix')
+  // ── Frame-wide entries ──────────────────────────────────────────────────
 
-  // Composer insets adaptation: pad composer seat with system bottom / IME bottom.
-  ctx.effect(() => {
-    const style = document.createElement('style')
-    style.setAttribute('data-plugin', 'composer-insets')
-    style.textContent = COMPOSER_INSETS_CSS
-    document.head.appendChild(style)
-    return () => { style.remove() }
-  }, 'ui-layout: composer insets adaptation')
-
-  // Composer command-menu scroll fix: the upstream menu viewport lacks
-  // flex:1, so an over-long candidate list is clipped unscrollable.
-  ctx.effect(() => {
-    const style = document.createElement('style')
-    style.setAttribute('data-plugin', 'composer-menu')
-    style.textContent = COMPOSER_MENU_CSS
-    document.head.appendChild(style)
-    return () => { style.remove() }
-  }, 'ui-layout: composer menu scroll fix')
-
-  // Trajectory local details panel (issue apk#67): on narrow screens the
-  // upstream panel is confined between the timeline bar and the composer seat.
-  // Overlay it full-viewport so it has real reading space (fixed escapes the
-  // ledger; the panel's own body scrolls).
-  ctx.effect(() => {
-    const style = document.createElement('style')
-    style.setAttribute('data-plugin', 'trajectory-details')
-    style.textContent = TRAJECTORY_DETAILS_CSS
-    document.head.appendChild(style)
-    // 旧 WebView 不认 :has()（#17 回归，MIUI12/Chromium 83）：class 降级路径兜底。
-    const ledger = document.querySelector<HTMLElement>('[class*="ledger"]')
-    const observer = new TrajectoryPanelsObserver(ledger)
-    observer.attach()
-    return () => {
-      observer.detach()
-      style.remove()
-    }
-  }, 'ui-layout: trajectory details full-viewport overlay + :has() fallback')
-
-  // Composer popups (slash menu + model menu) anchor to their trigger, not the
-  // viewport: keep them inside the viewport horizontally, keep the painted card
-  // as narrow as its content, and keep the first rows below the mobile top bar
-  // (issue apk#135).
-  ctx.effect(() => {
-    const guard = new ComposerPopupGuard()
-    guard.attach()
-    return () => { guard.detach() }
-  }, 'ui-layout: composer popup geometry guard')
-
-  // Session-log export: the shell owns the only result dialog (success/failure
-  // via window.__dshExportResult). Hide the upstream preparing/success/error
-  // modal so two dialogs never stack on Android.
-  ctx.effect(() => {
-    const style = document.createElement('style')
-    style.setAttribute('data-plugin', 'session-log-dialog')
-    style.textContent = SESSION_LOG_DIALOG_HIDE_CSS
-    document.head.appendChild(style)
-    return () => { style.remove() }
-  }, 'ui-layout: hide upstream session-log dialog')
-
-  // Theme presentation: pure DOM writes from resolved snapshots — initial
-  // state through the getter once, then event-driven only; no React path.
-  ctx.effect(() => {
-    const presenter = new ThemePresenter()
-    presenter.apply(ctx.theme.getTheme())
-    const off = ctx.on('theme/change', (snapshot) => { presenter.apply(snapshot) })
-    return () => {
-      off()
-      presenter.dispose()
-    }
-  }, 'ui-layout: theme presenter')
-
-  // Mobile Enter guard: on the mobile form the soft-keyboard Enter key must
-  // insert a newline instead of submitting — the send button is the only
-  // send channel. Desktop and command-menu/IME paths stay untouched.
-  ctx.effect(() => {
-    const guard = new EnterGuard()
-    guard.attach()
-    return () => { guard.detach() }
-  }, 'ui-layout: mobile enter guard')
-
-  // Mobile keyboard boundary (issue #57): while the IME is open the mobile
-  // frame keeps its 100% height (the layout viewport does not shrink on
-  // Android 16 edge-to-edge), leaving a scrollable blank band under the
-  // composer. Pin the frame to the visualViewport height while an IME inset
-  // is present so the blank band is clipped instead of scrolled into view.
-  ctx.effect(() => {
-    const boundary = new KeyboardBoundary()
-    boundary.attach()
-    return () => { boundary.detach() }
-  }, 'ui-layout: mobile keyboard boundary')
-
-  // Theme bridge: prefers-color-scheme → OS dark state on WebViews whose
-  // media query does not track uiMode (vivo/Android 16 observed). The shell
-  // pushes window.__dshThemeBridge.setDark() on Configuration changes.
-  ctx.effect(() => {
-    const bridge = new ThemeBridge()
-    bridge.install()
-    return () => { /* the hook is global and idempotent: no teardown needed */ }
-  }, 'ui-layout: theme bridge')
+  // Mobile chrome: the top bar holding the drawer toggle, plus its mask. This
+  // is the only place the phone form adds a control.
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'mobile-chrome',
+    inject: (): MobileChromeInjected => ({
+      toggleSidebar: () => { ctx.layout.toggleSidebar() },
+    }),
+  }, MobileChrome))
 
   // Export-result dialog: the shell's session-export download finishes on a
   // background thread and reports through window.__dshExportResult. The bridge
   // dispatches a DOM event into the React tree; the dialog entry reads it from
-  // the store below. Registration waits on the shell.overlay declaration
-  // owned by this plugin's root entry.
-  let exportActions: BoundActions<ReturnType<typeof createExportResultStore>> | undefined
+  // the store below. Registration waits on the shell.overlay declaration owned
+  // by upstream ui-layout.
+  // The dialog's state is a plain observable, not a framework store: this
+  // plugin's only shared state is one dialog payload, and the slot framework
+  // binds the source into `useExportResult` through the hooks compartment.
+  const exportChannel = new ExportResultChannel()
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
     id: 'export-result',
-    store: createExportResultStore,
-    inject: (actions: BoundActions<ReturnType<typeof createExportResultStore>>) => {
-      exportActions = actions
-      return {}
-    },
+    inject: () => ({
+      hooks: { exportResult: exportChannel },
+      close: () => { exportChannel.close() },
+    }),
   }, ExportResultDialog))
+
+  // Session-log export: the shell owns the only result dialog (success/failure
+  // via window.__dshExportResult). Hide the upstream preparing/success/error
+  // modal so two dialogs never stack on Android.
+  ctx.effect(() => injectStyle('session-log-dialog', SESSION_LOG_DIALOG_HIDE_CSS), 'ui-responsive: hide upstream session-log dialog')
+
+  // ── Native "open with" wiring ───────────────────────────────────────────
+
+  // Session-header action: open the Session's workspace directory through the
+  // Android system chooser. Upstream's own open-in-app split button is disabled
+  // in the Android profile (its host catalog probes desktop applications).
+  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+    name: 'conversation.session.header.utilities',
+    id: 'android-open-in-file-manager',
+    order: -10,
+  }, OpenInFileManagerAction))
+
+  // "Open with" tab type: archives, packages, and binaries the built-in
+  // previews cannot render. Registered at the `extension` band, but it declines
+  // whenever a builtin or extension type already welcomes the address, so a
+  // future upstream renderer keeps its files.
+  ctx.effect(() => {
+    const tabs = ctx.get('sidebarRightTabs')
+    // Without the right Sidebar (an older composition) there is no registry to
+    // register into, and nothing that could ever open the type.
+    if (tabs === undefined) return () => {}
+    // `claimedByAnother` runs inside our own `canOpen`, and the registry's
+    // ranking pass re-enters every definition (ours included): the flag makes
+    // that nested pass read this type as declining, which is exactly the
+    // question "does any OTHER non-fallback type claim this address".
+    let ranking = false
+    const claimedByAnother = (address: string): boolean => {
+      if (ranking) return false
+      ranking = true
+      try {
+        return tabs.candidates(address).some(definition =>
+          definition.id !== EXTERNAL_OPEN_ID && definition.priority !== 'fallback')
+      } finally {
+        ranking = false
+      }
+    }
+    return tabs.register(externalOpenDefinition(claimedByAnother))
+  }, 'ui-responsive: open-with tab type')
+
+  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+    name: 'sidebar.right.pane.tab',
+    key: EXTERNAL_OPEN_ID,
+  }, ExternalOpenTab))
+
+  // ── Bridges ─────────────────────────────────────────────────────────────
+
+  ctx.effect(() => {
+    const onResult = (event: Event): void => {
+      const payload = (event as CustomEvent<ExportResultPayload>).detail
+      if (payload === null || typeof payload !== 'object') return
+      if (typeof payload.ok !== 'boolean' || typeof payload.title !== 'string' || typeof payload.detail !== 'string') return
+      exportChannel.show(payload)
+    }
+    const bridge = (payload: ExportResultPayload): void => { reportUserFacingResult(payload) }
+    window.__dshExportResult = bridge
+    window.addEventListener('dsh:export-result', onResult)
+    return () => {
+      window.removeEventListener('dsh:export-result', onResult)
+      delete window.__dshExportResult
+    }
+  }, 'ui-responsive: export result dialog bridge')
 
   // PRD F5 消费端（2026-08-23 补齐）：外部文件/图片 → 宿主 dsh-android-file-open 已创建
   // 强制新会话（种子消息 = @文件路径 + 上下文）。本消费端轮询 GET /api/android/file-incoming，
@@ -391,22 +333,4 @@ export function apply(ctx: ClientContext): void {
       window.removeEventListener('focus', onVisible)
     }
   }, 'ui-responsive: file-incoming consumer (F5)')
-
-  ctx.effect(() => {
-    const onResult = (event: Event): void => {
-      const payload = (event as CustomEvent<ExportResultPayload>).detail
-      if (payload === null || typeof payload !== 'object') return
-      if (typeof payload.ok !== 'boolean' || typeof payload.title !== 'string' || typeof payload.detail !== 'string') return
-      exportActions?.show(payload)
-    }
-    const bridge = (payload: ExportResultPayload): void => {
-      window.dispatchEvent(new CustomEvent('dsh:export-result', { detail: payload }))
-    }
-    window.__dshExportResult = bridge
-    window.addEventListener('dsh:export-result', onResult)
-    return () => {
-      window.removeEventListener('dsh:export-result', onResult)
-      delete window.__dshExportResult
-    }
-  }, 'ui-layout: export result dialog bridge')
 }

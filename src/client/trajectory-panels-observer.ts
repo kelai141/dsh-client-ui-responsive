@@ -3,7 +3,7 @@
  * 主 CSS 用 :has()（Chromium 105+）抬升 ledger z-index；旧 WebView（MIUI12
  * 时代 Chromium 83）不支持 :has()，整条规则被丢弃 → 面板被顶部 banner 遮挡。
  * 本观察器用 MutationObserver 检测 aside[aria-label="Event details"] 的存在，
- * 给所属 ledger 切换 data-mobile-ledger-raised class（trajectory-details.css.ts
+ * 给所属 ledger 切换 dsh-mobile-ledger-raised class（trajectory-details.css.ts
  * 的伴随规则兜底），并在浏览器原生支持 :has() 时自动停摆（零重复开销）。
  */
 export class TrajectoryPanelsObserver {
@@ -31,16 +31,16 @@ export class TrajectoryPanelsObserver {
   detach(): void {
     this.mutationObserver.disconnect()
     if (this.attached && this.ledger !== null) {
-      this.ledger.classList.remove('data-mobile-ledger-raised')
+      this.ledger.classList.remove('dsh-mobile-ledger-raised')
     }
     this.attached = false
   }
 
-  /** 面板存在 → 抬升 ledger（class 路径，CSS .data-mobile-ledger-raised）；否则移除。 */
+  /** 面板存在 → 抬升 ledger（class 路径，CSS .dsh-mobile-ledger-raised）；否则移除。 */
   private sync(): void {
     if (this.ledger === null) return
     const panel = this.ledger.querySelector<HTMLElement>('aside[aria-label="Event details"]')
-    this.ledger.classList.toggle('data-mobile-ledger-raised', panel !== null)
+    this.ledger.classList.toggle('dsh-mobile-ledger-raised', panel !== null)
   }
 
   private isRelevantMutation(record: MutationRecord): boolean {

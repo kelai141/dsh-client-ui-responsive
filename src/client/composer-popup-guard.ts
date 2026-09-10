@@ -137,7 +137,7 @@ export class ComposerPopupGuard {
 
   private apply(): void {
     const card = document.querySelector<HTMLElement>('[data-composer-card]')
-    const topbar = document.querySelector<HTMLElement>('[data-mobile-topbar]')
+    const topbar = document.querySelector<HTMLElement>('[data-dsh-mobile-topbar]')
     if (card === null) {
       this.clear()
       return
