@@ -1,62 +1,74 @@
 # dsh-client-ui-responsive
 
+[🌐 English README](README.md)
+
 > **dsh-mobile 生态** · [dsh-mobile-apk](https://github.com/kelai141/dsh-mobile-apk)（壳 APK）· [dsh-shell-termux](https://github.com/kelai141/dsh-shell-termux)（shell）· [dsh-host-web-compat](https://github.com/kelai141/dsh-host-web-compat)（浏览器兼容）· [dsh-mobile](https://github.com/kelai141/dsh-mobile)（协调仓库，private）
 
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) Web UI 的移动响应式 AppFrame：
-上游 `ui-layout` 的即插即用替代品，新增 **Mobile 形态**（<640px）——抽屉侧栏、底部 sheet、带汉堡的顶栏、安全区；
-Wide/Narrow 行为与上游逐字节一致。
+DeepSeek Harness Web UI 的 **Android 移动适配层**。
 
-## 快速开始
+**0.2.0 起「去 fork」**：0.1.14 之前本插件用自研的移动版 AppFrame 替换上游
+`ui-layout`；上游 0.1.5 把 `ui-layout` 变成了布局服务中枢（`ctx.layout`、键控
+`main` 面板槽、右栏 track/fullscreen 汇报），ui-conversation / ui-sidebar /
+ui-sidebar-right 都挂在它上面——继续 fork 就得每个版本复刻一遍 API 面。现在改为
+保留上游框架，只补手机需要的那一层。
 
-**1. 安装**（放入 web profile 的 node_modules，模式见 dsh-shell-termux）。
+## 做什么
 
-**2. 挂载**（profile 的 `cordis.patch.yml`）：
+| 面 | 内容 |
+|---|---|
+| 手机形态（<768px） | 纯 CSS 覆盖上游框架：左栏变离屏抽屉、中栏占满框架、右栏沿用上游自带的全屏滑入（同一 768px 阈值）、拖拽手柄让位 |
+| 抽屉入口 | `shell.overlay` 顶栏一个开关（手机上 rail 已离屏；不往 composer 行加控件） |
+| 原生「打开方式」 | 会话头部入口（打开工作区目录）+ `extension` 带的标签类型（压缩包/二进制）——都唤起壳侧选择器（MT 管理器 / 系统文件管理） |
+| 输入区 | 系统栏/输入法 inset、窄屏控件行宽度上限、弹出面板宽高与水平钳制、手机 Enter 守卫 |
+| 壳侧界面 | 开发者选项页、Android 显示设置行、导出结果弹窗、外部文件直达消费端、主题桥、键盘边界 |
+| 0.1.5 一并退役 | 框架 fork、重复的 ThemePresenter、注入的「上传图片」「导出调试日志」菜单项、图片选择桥、以及遮蔽上游附件按钮的 CSS |
+
+## 安装与挂载
+
+**1. 打包**进 web profile 的 `node_modules`（模式见 dsh-shell-termux）。
+
+**2. 在 profile 的 `cordis.patch.yml` 里 insert**——`ui-layout` 保持启用：
 
 ```yaml
-- id: ui-layout
-  disabled: true
 - insert:
     - id: ui-responsive
       name: '@dsh-android/dsh-client-ui-responsive'
+- id: open-in-app
+  disabled: true
+- id: ui-open-in-app
+  disabled: true
 ```
 
-**3. 重启**，验证浏览器名册（`window.__DSH_BOOT__` 含 `@dsh-android/dsh-client-ui-responsive`，`ui-layout` 消失）。
+**3. 重启**并核对名册（`window.__DSH_BOOT__` 同时含 `ui-layout` 与本插件）。
 
-## 断点体系
+## 契约锚点
 
-| 档位 | 宽度 | 形态 |
+手机形态只锚定 DOM 事实，不锚 CSS Module 哈希类名；事实由本插件自己发布：
+
+| 事实 | 写入方 | 消费方 |
 |---|---|---|
-| Wide | ≥1024px | 三栏，上游行为 |
-| Narrow | 640–1024px | 上游自动折叠 rail + 手动展开 |
-| **Mobile** | <640px | 单栏：sidebar→左抽屉、details→底部 sheet、顶栏+汉堡、安全区 |
+| `html[data-dsh-mobile-form]` | `mobile/form-marker.ts`（镜像 `(max-width: 767px)`） | 所有注入样式表 |
+| `[data-dsh-frame]` | 同上（由上游 `[data-rightbar-col]` 反查） | `mobile-form.css.ts`、键盘边界 |
+| `html[data-dsh-modal-open]`、`[data-dsh-settings-dialog]` | 同上 | 设置页重排 |
+| `[data-dsh-mobile-topbar]` | `mobile/MobileChrome.tsx` | 弹出面板几何守卫 |
 
-横屏手机（≥640 逻辑像素）原样复用 Wide/Narrow 界面。
-
-## 行为说明
-
-- **槽位与服务不变**：`sidebar`/`conversation`/`details`/`shell.overlay` 与 `ctx.layout`
-  与 ui-layout 完全一致——消费方（ui-sidebar、ui-conversation）零改动；
-- **移动形态语义**：汉堡切换抽屉（点遮罩关闭）；`ctx.layout.openDetails()` 弹出底部 sheet；
-  `shell.overlay` 保持最顶层（z 20）；
-- **旋转即时切换**：同一套 rAF 节流 ResizeObserver 驱动；`prefers-reduced-motion` 关闭过渡。
+样式依赖的上游属性：`data-sidebar-collapsed`、`data-rightbar-col`、
+`data-rightbar-panel="fullscreen"`、`data-sidebar-right-toggle`、
+`data-conversation-header-corner`。
 
 ## 构建
 
 ```sh
-npm install          # 基线钉 @deepseek-ai/* 0.1.0-rc.6
-npm run build        # tsc（lib/types）+ tsdown（lib/client.js 浏览器包）
+npm install          # @deepseek-ai/* 固定 0.1.5-rc.1
 npm run typecheck
+npm run build        # tsc（lib/types）+ tsdown（lib/client.js 浏览器包）
+npx vitest run
 ```
 
-浏览器包遵循 `__ModuleLoader__.load` 契约；改动后先重建再探测线上服务（registry 提供的是 `lib/client.js` 产物）。
+浏览器包走 `__ModuleLoader__.load` 契约；对活服务器做探活前必须重新构建
+（注册表提供的是 `lib/client.js`，不是源码）。
 
-## 测试
+## 许可
 
-- 宿主 CDP 组件级：412px（抽屉开合/遮罩）与 1280px（三栏回归）——见协调仓库验证日志；
-- 旧内核浏览器（ES2024 前 WebView）无法加载客户端包：请用较新 WebView（系统 WebView 即可），
-  浏览器兼容插件可作兜底。
-
-## License
-
-MIT。派生自 `@deepseek-ai/dsh-client-ui-layout`（MIT, © 2026 DeepSeek），见 NOTICE。
-设计文档：`docs/design.md`。
+MIT。派生自 `@deepseek-ai/dsh-client-ui-layout`（MIT，© 2026 DeepSeek）——见 NOTICE。
+设计说明：`docs/design.md`。

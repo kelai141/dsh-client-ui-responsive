@@ -18,18 +18,18 @@ export const COMPOSER_MENU_CSS: string = `
   min-height: 0;
 }
 
-[data-mobile] [data-composer-card] [role='listbox'],
-[data-mobile] [data-composer-card] [role='menu'] {
+html[data-dsh-mobile-form] [data-composer-card] [role='listbox'],
+html[data-dsh-mobile-form] [data-composer-card] [role='menu'] {
   max-width: var(--dsh-mobile-popup-max-width, min(92vw, 340px)) !important;
 }
 
-[data-mobile] [data-composer-card] [role='listbox'] {
+html[data-dsh-mobile-form] [data-composer-card] [role='listbox'] {
   max-height: var(--dsh-mobile-menu-max-height, 320px) !important;
 }
 
 /* The model menu is its own painted surface; its height cap only exists while
    the guard measures one, so the upstream 360px design cap stays in charge. */
-[data-mobile] [data-composer-card] [role='menu'] {
+html[data-dsh-mobile-form] [data-composer-card] [role='menu'] {
   max-height: var(--dsh-mobile-menu-max-height, none) !important;
 }
 

@@ -4,7 +4,7 @@
  * On the phone soft keyboard the Enter (newline) key fires a plain keydown
  * Enter — upstream InputBar treats it as submit (keyboard.submit), and there
  * is no Shift to fall back on. This guard, on the mobile form only
- * (viewport < MOBILE_BREAKPOINT), intercepts a plain Enter inside the
+ * (viewport <= MOBILE_FORM_MAX_WIDTH), intercepts a plain Enter inside the
  * composer textarea at document capture phase — before React's root listener
  * — and converts it into a newline insertion, leaving the send button as the
  * only send channel.
@@ -15,7 +15,7 @@
  * - Shift+Enter (external keyboards): upstream native newline.
  * - Desktop/wide viewport: upstream behavior unchanged.
  */
-import { MOBILE_BREAKPOINT } from './columns.ts'
+import { MOBILE_FORM_MAX_WIDTH } from './mobile/form-marker.ts'
 
 export class EnterGuard {
   private readonly onKeyDown = (event: KeyboardEvent): void => {
@@ -27,7 +27,7 @@ export class EnterGuard {
     if (target.closest('[data-composer-card] textarea') === null) return
     // Command menu open: Enter selects the highlighted candidate.
     if (document.querySelector('[role="listbox"]') !== null) return
-    if (window.innerWidth >= MOBILE_BREAKPOINT) return
+    if (window.innerWidth > MOBILE_FORM_MAX_WIDTH) return
     event.stopPropagation()
     event.preventDefault()
     const active = document.activeElement

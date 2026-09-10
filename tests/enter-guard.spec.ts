@@ -3,7 +3,7 @@
 // + mobile-viewport interception + execCommand degradation.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { EnterGuard } from '../src/client/enter-guard.ts'
-import { MOBILE_BREAKPOINT } from '../src/client/columns.ts'
+import { MOBILE_FORM_MAX_WIDTH } from '../src/client/mobile/form-marker.ts'
 
 /** Run a case at the given viewport width (jsdom innerWidth is writable). */
 function setViewport(width: number) {
@@ -21,7 +21,7 @@ let host: HTMLElement
 let guard: EnterGuard
 
 beforeEach(() => {
-  setViewport(MOBILE_BREAKPOINT - 1) // default mobile viewport
+  setViewport(MOBILE_FORM_MAX_WIDTH) // default mobile viewport
   host = document.createElement('div')
   host.innerHTML = '<div data-composer-card><textarea></textarea></div>'
   document.body.appendChild(host)
@@ -57,7 +57,7 @@ describe('EnterGuard 拦截路径（移动视口）', () => {
 
 describe('EnterGuard 四道守卫（不拦截）', () => {
   it('桌面/宽视口：行为完全不变', () => {
-    setViewport(MOBILE_BREAKPOINT)
+    setViewport(MOBILE_FORM_MAX_WIDTH + 1)
     const textarea = host.querySelector('textarea')!
     const event = fireEnter(textarea)
     expect(event.defaultPrevented).toBe(false)

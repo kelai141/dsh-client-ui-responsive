@@ -2,9 +2,10 @@
  * KeyboardBoundary (issue #57): Android 16 edge-to-edge WebViews do not
  * shrink the layout viewport when the soft keyboard opens (adjustResize
  * does not resize the WebView content; visualViewport shrinks but
- * innerHeight stays 758). The mobile frame (height: 100%) therefore extends
- * under the keyboard, and its scrollable content leaves a blank band below
- * the composer — swiping up past the input reveals empty black.
+ * innerHeight stays 758). The frame (height: 100%, upstream ui-layout's root
+ * grid) therefore extends under the keyboard, and its scrollable content leaves
+ * a blank band below the composer — swiping up past the input reveals empty
+ * black.
  *
  * Fix: while the IME inset is non-zero, pin the mobile frame's height to the
  * visualViewport height (the keyboard's top edge). The frame's overflow:
@@ -32,7 +33,7 @@ export class KeyboardBoundary {
     window.visualViewport?.addEventListener('resize', this.onViewportChange)
     // jsdom's matchMedia stub returns a bare object: tolerate it (the
     // visualViewport resize still drives the pin).
-    this.media = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 640px)') : null
+    this.media = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 767px)') : null
     this.media?.addEventListener?.('change', this.onViewportChange)
     this.onViewportChange()
   }
@@ -45,7 +46,7 @@ export class KeyboardBoundary {
   }
 
   private readonly onViewportChange = (): void => {
-    const frame = document.querySelector<HTMLElement>('[data-mobile]')
+    const frame = document.querySelector<HTMLElement>('[data-dsh-frame]')
     if (frame === null) return
     this.frame = frame
     const rootStyle = getComputedStyle(document.documentElement)

@@ -1,0 +1,78 @@
+/*
+ * Phone chrome. Outside the phone form the entry stays mounted but draws
+ * nothing (the seat is a frame-wide layer; an empty box must not eat taps).
+ */
+
+.root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 25;
+}
+
+.bar,
+.mask {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .bar {
+    display: flex;
+    align-items: center;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    box-sizing: border-box;
+    height: calc(var(--dsh-mobile-topbar-height, 44px) + var(--dsh-mobile-top-inset, 0px));
+    padding: var(--dsh-mobile-top-inset, 0px) 4px 0;
+    background: var(--dsw-specific-sidebar-fill);
+    border-bottom: 1px solid var(--dsw-alias-border-l1);
+    pointer-events: auto;
+    z-index: 26;
+  }
+
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--dsw-alias-text-l1);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .toggle:active {
+    background: var(--dsw-alias-button-floating-fill);
+  }
+
+  /* The drawer (mobile-form.css, z 30) slides over the bar; the mask sits
+     between the centre column and the drawer, so a tap beside the drawer
+     closes it. */
+  .mask {
+    display: block;
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--ds-transition-duration-slow, 200ms) var(--ds-ease-in-out, ease);
+    z-index: 25;
+  }
+
+  .mask[data-open] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mask {
+    transition: none;
+  }
+}

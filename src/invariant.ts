@@ -15,9 +15,10 @@ export const name = 'client-ui-responsive-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the shell viewing-state store behind ctx.layout emits
- * no cordis events; clamping and breakpoint-transition sequencing are asserted
- * directly by this package's columns and layout-store tests.
+ * No runtime invariant: this plugin owns no service and no cross-plugin state
+ * any more (ctx.layout belongs to upstream ui-layout). Its pure decisions —
+ * address parsing, the open-with suffix list, and the marker's breakpoint — are
+ * asserted directly by this package's unit tests.
  */
 const install: InvariantInstaller = () => {}
 

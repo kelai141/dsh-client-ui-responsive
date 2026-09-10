@@ -13,7 +13,7 @@ export const TRAJECTORY_DETAILS_CSS: string = `
   /* aside-scoped: the upstream panel's tablist ALSO carries aria-label="Event
      details", so a bare attribute selector would also turn the tabs into a
      fixed full-screen overlay covering the header and the close button. */
-  [data-mobile] aside[aria-label="Event details"] {
+  html[data-dsh-mobile-form] aside[aria-label="Event details"] {
     position: fixed;
     inset: 0;
     z-index: 40;
@@ -25,7 +25,7 @@ export const TRAJECTORY_DETAILS_CSS: string = `
     padding-top: var(--dsh-mobile-top-inset, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-  [data-mobile] aside[aria-label="Event details"] [aria-label="Resize event details"] {
+  html[data-dsh-mobile-form] aside[aria-label="Event details"] [aria-label="Resize event details"] {
     display: none;
   }
   /* The panel's fixed z-index lives inside the ledger's stacking context
@@ -37,11 +37,11 @@ export const TRAJECTORY_DETAILS_CSS: string = `
      2026-08-23 (#17 回归修复)：:has() 是 Chromium 105+；MIUI12 旧 WebView
      (Chromium 83) 整条规则被丢弃 → 面板遮挡回归。保留 :has() 路径（新内核
      零开销，无 JS 依赖）并追加 class 路径（旧内核由 TrajectoryPanelsObserver
-     在面板开合时切换 data-mobile-ledger-raised）。 */
-  [data-mobile] [class*="ledger"]:has(aside[aria-label="Event details"]) {
+     在面板开合时切换 dsh-mobile-ledger-raised）。 */
+  html[data-dsh-mobile-form] [class*="ledger"]:has(aside[aria-label="Event details"]) {
     z-index: 12;
   }
-  [data-mobile] [class*="ledger"].data-mobile-ledger-raised {
+  html[data-dsh-mobile-form] [class*="ledger"].dsh-mobile-ledger-raised {
     z-index: 12;
   }
 }

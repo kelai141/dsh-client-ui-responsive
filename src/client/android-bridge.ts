@@ -3,6 +3,17 @@
  * addJavascriptInterface. Single source of truth — theme-bridge and dev-section share this
  * declaration; all methods optional (safe degradation on desktop/non-shell hosts).
  */
+/** How the shell should hand a path to the system chooser. */
+export type OpenPathMode = 'view' | 'folder'
+
+/** Outcome of one `openPathChooser` call, decoded from the bridge's JSON answer. */
+export interface OpenPathResult {
+  /** True when the chooser was raised (the user's pick is the system's business). */
+  ok: boolean
+  /** Failure reason: `unavailable` (no bridge), `no-handler`, `not-allowed`, or a shell error. */
+  reason?: string
+}
+
 export interface AndroidShellBridge {
   /** H1: sync system-dark query (fallback for vendor WebViews whose matchMedia is stuck on light). */
   getSystemDark?: () => boolean
@@ -28,6 +39,12 @@ export interface AndroidShellBridge {
   hasAllFilesAccess?: () => boolean
   /** Immersive status-bar toggle (true = status bar normally hidden), persisted by the shell. */
   setImmersiveMode?: (enable: boolean) => void
+  /** 0.13.7: open a path through the Android system chooser (MT Manager, system files).
+   *  Returns a JSON `{ok, launched?, reason?}` answer; `folder` targets the directory. */
+  openPathChooser?: (path: string, mode?: OpenPathMode) => string
+  /** Pre-0.13.7 implicit ACTION_VIEW on a single path (kept: the page's path clicks
+   *  fall back to it when the chooser is unavailable). Returns whether it launched. */
+  openNativePath?: (path: string) => boolean
   /** 0.13.2 W7: floating-ball toggle state (persisted by the shell). */
   getOverlayEnabled?: () => boolean
   /** 0.13.2 W7: floating-ball toggle; returns whether the overlay actually started
