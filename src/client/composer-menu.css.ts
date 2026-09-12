@@ -18,9 +18,19 @@ export const COMPOSER_MENU_CSS: string = `
   min-height: 0;
 }
 
-html[data-dsh-mobile-form] [data-composer-card] [role='listbox'],
+/* 宽度钳制只作用在**绘制卡片**上，滚动容器（listbox）必须铺满卡片：
+   实测（450px 视口）卡片 424 宽而 listbox 只有 340 → 滚动条离卡片右缘 84px，
+   看起来就是「滚动条没吸在最右侧、和布局边界不匹配」（正是 #135 的回归形态：
+   钳制只落在滚动容器上时，卡片会比内容宽，留下一条没有滚动条的空白条）。
+   现在：卡片吃钳制，listbox 跟随卡片宽度，滚动条因此贴在卡片右缘。 */
+html[data-dsh-mobile-form] [data-composer-card] [data-dsh-popup] {
+  max-width: var(--dsh-mobile-popup-max-width, min(96vw, 420px)) !important;
+}
 html[data-dsh-mobile-form] [data-composer-card] [role='menu'] {
-  max-width: var(--dsh-mobile-popup-max-width, min(92vw, 340px)) !important;
+  max-width: var(--dsh-mobile-popup-max-width, min(96vw, 420px)) !important;
+}
+html[data-dsh-mobile-form] [data-composer-card] [role='listbox'] {
+  max-width: none !important;
 }
 
 html[data-dsh-mobile-form] [data-composer-card] [role='listbox'] {
