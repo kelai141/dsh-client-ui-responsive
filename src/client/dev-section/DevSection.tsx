@@ -250,7 +250,10 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         Android 壳调试设施：控制台为快照内嵌 Termux bash；日志默认关闭。
       </p>
 
-      {/* 开发者选项子区（2026-08-23）：ADB 授权面板等设施经 settings.dev.item 挂载 */}
+      {/* 0.14.0：屏幕/Shizuku/虚拟屏/浮窗/无障碍/强制销毁已迁到独立「手机控制」设置页。 */}
+
+      {/* Legacy ADB diagnostic controls remain below the user-facing Shizuku/screen surface until
+          the hard-cut migration is verified. */}
       {renderSlot?.('settings.dev.item', {})}
 
       <div className="dsh-dev-row">

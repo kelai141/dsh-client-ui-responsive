@@ -213,3 +213,6 @@ describe('DevSection（开发者选项设置页）', () => {
     expect(toggle.checked, '桥回读为 false → 开关不得乐观置位').toBe(false)
   })
 })
+
+// 0.14.0：开放屏幕范围选择器随「手机控制」设置分区迁出——用例见 phone-control.spec.tsx。
+
