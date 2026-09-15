@@ -103,6 +103,90 @@ export const DEV_SECTION_CSS: string = `
   margin: 0;
 }
 
+.dsh-screen-scope-row {
+  justify-content: space-between;
+  padding: 10px 0;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+.dsh-screen-scope-row > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+}
+.dsh-screen-scope-row small {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-screen-scope-row select {
+  min-height: 34px;
+  max-width: min(100%, 190px);
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.dsh-screen-control-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+.dsh-screen-control-header {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.dsh-screen-control-header > span:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+}
+.dsh-screen-control-header small {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-screen-control-state {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid var(--dsw-alias-border-l4);
+  border-radius: 999px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-screen-control-state[data-state='ready'],
+.dsh-screen-control-state[data-state='active'] {
+  border-color: var(--dsw-specific-primary);
+  color: var(--dsw-specific-primary);
+}
+.dsh-screen-control-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-screen-control-detail strong { color: var(--dsw-alias-label-primary); }
+
+.dsh-dev-error {
+  color: var(--dsw-specific-danger, #d33);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .dsh-dev-label {
   font-size: 14px;
   color: var(--dsw-alias-label-primary, #222);

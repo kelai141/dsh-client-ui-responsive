@@ -1,51 +1,57 @@
 // @vitest-environment jsdom
-// 侧边栏 AI 浏览器面板入口回归（U-1）：tab 类型定义 + 面板读 host 半档位路由。
+// 0.14.0 极简浏览器面板：顶部地址 + 单按钮，底部分辨率 + PC/手机；无其它文字与控件。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { BROWSER_STATUS_ROUTE, BROWSER_TAB_ID, BROWSER_TAB_KIND, BrowserTab, browserTabDefinition } from '../src/client/mobile/browser-tab.tsx'
+import { BROWSER_TAB_ID, BROWSER_TAB_KIND, BrowserTab, browserTabDefinition } from '../src/client/mobile/browser-tab.tsx'
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 let root: Root | undefined
 let host: HTMLElement | undefined
 
-const PAYLOAD = {
-  ok: true,
-  available: false,
-  tier: 'L1-text',
-  viewportRoute: 'S1',
-  identityRoute: 'ua-string-only',
-  factsSource: 'measured-baseline(p0-2026-09-12, MuMu/WebView110)',
-  capsNote: 'browserCaps 未实现或超时（壳侧 op 待落地）',
-  uaChAvailable: false,
-  androidxWebkitAvailable: false,
-  densityOverrideSupported: false,
-  browserWebViewAvailable: false,
-  cdpEnabled: false,
-  reasons: ['工位 WebView 未就绪'],
-  degradedNotes: ['WebView 110 < 116：本机无 UA-CH'],
-  viewportPresets: [{ id: 'phone-portrait', label: '手机竖屏（默认）', width: 390, height: 844, mobile: true }],
-  identityProfiles: [{ id: 'android-real', label: '真实手机（默认）', requiresConfirm: false }],
+function state(overrides = {}) {
+  return JSON.stringify({
+    ok: true,
+    available: true,
+    created: false,
+    visible: false,
+    url: 'about:blank',
+    title: '',
+    pageGeneration: 0,
+    viewportId: 'device',
+    viewportWidth: 0,
+    viewportHeight: 0,
+    identityId: 'android-real',
+    atTop: true,
+    scrollDirection: 0,
+    reason: '',
+    ...overrides,
+  })
 }
 
-async function render(): Promise<HTMLElement> {
+async function render(bridge?: Record<string, unknown>): Promise<HTMLElement> {
+  delete window.androidBridge
+  if (bridge !== undefined) window.androidBridge = bridge as never
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
-  await act(async () => {
-    root!.render(<BrowserTab {...({} as never)} />)
-  })
+  const useTabInfo = () => ({ tab: { signal: new AbortController().signal } })
+  await act(async () => { root!.render(<BrowserTab {...({ sessionId: 'session-test', useTabInfo } as never)} />) })
   return host
 }
 
-async function settle(): Promise<void> {
-  await act(async () => { await Promise.resolve() })
+function setReactInputValue(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  if (setter === undefined) throw new Error('HTMLInputElement.value setter missing')
+  setter.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
 beforeEach(() => {
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
 })
+
 afterEach(async () => {
   if (root !== undefined) {
     await act(async () => { root!.unmount() })
@@ -53,11 +59,12 @@ afterEach(async () => {
   }
   host?.remove()
   host = undefined
-  vi.unstubAllGlobals()
+  delete window.androidBridge
+  vi.restoreAllMocks()
 })
 
-describe('AI 浏览器面板入口（U-1）', () => {
-  it('tab 类型：extension 带、无地址模式（页面类型）、guide 卡片与工作区文件同级', () => {
+describe('AI 浏览器 Files 侧栏工作台（0.14.0 极简面板）', () => {
+  it('tab 类型：extension 带、guide 卡片与工作区文件同级', () => {
     const def = browserTabDefinition()
     expect(def.id).toBe(BROWSER_TAB_ID)
     expect(def.kind).toBe(BROWSER_TAB_KIND)
@@ -66,37 +73,75 @@ describe('AI 浏览器面板入口（U-1）', () => {
     expect(def.title('')).toBe('AI 浏览器')
     expect(def.guide).toHaveLength(1)
     expect(def.guide?.[0].order).toBeGreaterThan(10)
-    expect(def.guide?.[0].title()).toBe('AI 浏览器')
     expect(def.guide?.[0].description?.()).toContain('右侧栏')
   })
 
-  it('面板读 host 半只读路由并渲染档位/来源/降级说明', async () => {
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => PAYLOAD }))
-    vi.stubGlobal('fetch', fetchMock)
+  it('host 缺席：无任何说明文字，控件禁用，工位仍在场', async () => {
     const el = await render()
-    await settle()
-    expect(fetchMock).toHaveBeenCalledWith(BROWSER_STATUS_ROUTE, expect.objectContaining({ credentials: 'same-origin' }))
-    expect(el.querySelector('[data-testid="browser-tier"]')?.textContent).toContain('L1-text')
-    expect(el.querySelector('[data-testid="browser-source"]')?.textContent).toContain('measured-baseline')
-    expect(el.querySelector('[data-testid="browser-source"]')?.textContent).toContain('browserCaps 未实现')
-    expect(el.querySelector('[data-testid="browser-degraded"]')?.textContent).toContain('无 UA-CH')
-    expect(el.querySelector('[data-testid="browser-stage"]')?.textContent).toContain('BrowserHost 未接入')
-    expect(el.querySelector('[data-testid="browser-viewport"]')).not.toBeNull()
-    expect(el.querySelector('[data-testid="browser-identity"]')).not.toBeNull()
+    expect(el.textContent).not.toContain('BrowserHost')
+    expect(el.querySelector('select')).toBeNull()
+    expect(el.querySelector('[data-testid="browser-stage"]')).not.toBeNull()
+    expect((el.querySelector('input[aria-label="浏览器地址"]') as HTMLInputElement).disabled).toBe(true)
+    expect((el.querySelector('input[aria-label="分辨率"]') as HTMLInputElement).disabled).toBe(true)
   })
 
-  it('未获授权（401）时不静默：面板给出可读提示', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) })))
-    const el = await render()
-    await settle()
-    expect(el.querySelector('[data-testid="browser-note"]')?.textContent).toContain('未获授权')
-    expect(el.querySelector('[data-testid="browser-tier"]')).toBeNull()
+  it('打开调用原生 BrowserHost 并发布 bounds；页面已开时同一按钮变刷新', async () => {
+    const browserHostBounds = vi.fn(() => state())
+    const browserHostShow = vi.fn(() => state({ created: true, visible: true, url: 'https://example.com', pageGeneration: 1 }))
+    const browserHostReload = vi.fn(() => state({ created: true, visible: true, url: 'https://example.com', pageGeneration: 2 }))
+    const el = await render({
+      browserHostStatus: () => state({ created: true, visible: true, url: 'https://example.com', pageGeneration: 1 }),
+      browserHostBounds,
+      browserHostShow,
+      browserHostReload,
+    })
+    const input = el.querySelector('input[aria-label="浏览器地址"]') as HTMLInputElement
+    await act(async () => { setReactInputValue(input, 'example.com') })
+    await act(async () => { (el.querySelector('button[type="submit"]') as HTMLButtonElement).click() })
+    expect(browserHostShow).toHaveBeenCalledTimes(1)
+    const showPayload = JSON.parse(browserHostShow.mock.calls[0][0] as string) as { url: string; session: string }
+    expect(showPayload.url).toBe('example.com')
+    expect(browserHostBounds).toHaveBeenCalled()
+    expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).textContent).toBe('刷新')
+    await act(async () => { (el.querySelector('button[type="submit"]') as HTMLButtonElement).click() })
+    expect(browserHostReload).toHaveBeenCalledTimes(1)
   })
 
-  it('host 半缺席（fetch 抛错）时给出可读提示而不是空白面板', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline') }))
-    const el = await render()
-    await settle()
-    expect(el.querySelector('[data-testid="browser-note"]')?.textContent).toContain('不可用')
+  it('底部分辨率输入提交后按 CSS 视口下发（宽×高）', async () => {
+    const browserHostViewport = vi.fn(() => state({ created: true, visible: true, url: 'https://example.com' }))
+    const el = await render({
+      browserHostStatus: () => state({ created: true, visible: true, url: 'https://example.com' }),
+      browserHostBounds: vi.fn(() => state()),
+      browserHostViewport,
+    })
+    const input = el.querySelector('input[aria-label="分辨率"]') as HTMLInputElement
+    await act(async () => { setReactInputValue(input, '1080x1920') })
+    const form = input.closest('form') as HTMLFormElement
+    await act(async () => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
+    expect(browserHostViewport).toHaveBeenCalledTimes(1)
+    const payload = JSON.parse(browserHostViewport.mock.calls[0][0] as string) as { width: number; height: number }
+    expect(payload.width).toBe(1080)
+    expect(payload.height).toBe(1920)
+  })
+
+  it('PC/手机切换把身份档与该模式记住的分辨率合并为一次下发', async () => {
+    const browserHostIdentity = vi.fn(() => state({ created: true, visible: true }))
+    const browserHostViewport = vi.fn(() => state({ created: true, visible: true }))
+    const el = await render({
+      browserHostStatus: () => state({ created: true, visible: true, url: 'https://example.com' }),
+      browserHostBounds: vi.fn(() => state()),
+      browserHostIdentity,
+      browserHostViewport,
+    })
+    const mode = [...el.querySelectorAll('button')].find((button) => button.textContent === '手机网页') as HTMLButtonElement
+    await act(async () => { mode.click() })
+    expect(browserHostIdentity).toHaveBeenCalledTimes(1)
+    const identity = JSON.parse(browserHostIdentity.mock.calls[0][0] as string) as {
+      profile: string; width: number; height: number
+    }
+    expect(identity.profile).toBe('linux-desktop')
+    expect(identity.width).toBe(1280)
+    expect(identity.height).toBe(720)
+    expect(browserHostViewport).not.toHaveBeenCalled()
   })
 })

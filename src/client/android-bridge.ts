@@ -45,6 +45,12 @@ export interface AndroidShellBridge {
   /** 0.13.7: open a path through the Android system chooser (MT Manager, system files).
    *  Returns a JSON `{ok, launched?, reason?}` answer; `folder` targets the directory. */
   openPathChooser?: (path: string, mode?: OpenPathMode) => string
+  /** 0.13.5 W4: 无障碍控制通道状态 JSON（enabled/label/restrictedHint）。 */
+  a11yStatus?: () => string
+  /** 0.13.5 W4: 跳系统无障碍设置页，由用户手动开启「DSH 设备控制」。 */
+  openA11ySettings?: () => void
+  /** 0.14.0: 解锁 Android 13+ 受限设置（appops，经 Shizuku 特权 shell）。返回 JSON {ok, message}。 */
+  unlockRestrictedSettings?: () => string
   /** Pre-0.13.7 implicit ACTION_VIEW on a single path (kept: the page's path clicks
    *  fall back to it when the chooser is unavailable). Returns whether it launched. */
   openNativePath?: (path: string) => boolean
@@ -53,6 +59,40 @@ export interface AndroidShellBridge {
   /** 0.13.2 W7: floating-ball toggle; returns whether the overlay actually started
    *  (false = SYSTEM_ALERT_WINDOW not granted — the shell opens the settings page). */
   setOverlayEnabled?: (enable: boolean) => boolean
+  /** 0.14: user-owned model screen-access scope. This is settings-only, not a model tool. */
+  getScreenScope?: () => 'virtual-only' | 'real-only' | 'all'
+  /** Persist a user-selected screen scope and return the normalized shell value. */
+  setScreenScope?: (scope: 'virtual-only' | 'real-only' | 'all') => 'virtual-only' | 'real-only' | 'all'
+  /** Trusted shell-only CWD for one blank external-open Session; no source file path is exposed. */
+  incomingWorkspacePath?: () => string
+  /** BrowserHost workbench lifecycle/navigation state (JSON string). */
+  browserHostStatus?: () => string
+  browserHostShow?: (url?: string | null) => string
+  browserHostHide?: () => string
+  browserHostReload?: () => string
+  browserHostBounds?: (bounds: string) => string
+  browserHostViewport?: (viewport: string) => string
+  /** 0.14.0: close (destroy) the current page; the workbench can be opened fresh afterwards. */
+  browserHostClose?: () => string
+  /** 0.14.0: switch identity profile (PC / mobile); payload is JSON `{profile, ua}`. */
+  browserHostIdentity?: (payload: string) => string
+  /** VirtualDisplay state/actions, exposed only to the trusted Files-sidebar UI. */
+  vdisplayStatus?: () => string
+  vdisplayCreate?: () => string
+  vdisplayDestroy?: () => string
+  vdisplayLaunchSettingsProbe?: () => string
+  vdisplayBackProbe?: () => string
+  vdisplayBounds?: (bounds: string) => string
+  /** Select the controller-owned presentation target (only owned virtual aliases are selectable). */
+  vdisplaySelect?: (alias: string) => string
+  /** 0.14.0 设置页「手机控制」：虚拟屏分辨率档位（0.5 / 0.75 / 1.0）。 */
+  getVdisplayScale?: () => number
+  setVdisplayScale?: (value: number) => number
+  /** 0.14.0 设置页「手机控制」：app 退后台自动浮窗开关。 */
+  getVdisplayFloatEnabled?: () => boolean
+  setVdisplayFloatEnabled?: (enable: boolean) => boolean
+  /** 0.14.0 设置页「手机控制」：强制销毁全部虚拟屏（三连点确认后调用）。 */
+  forceDestroyVdisplay?: () => string
 }
 
 declare global {
