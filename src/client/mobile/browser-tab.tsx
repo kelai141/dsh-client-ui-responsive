@@ -190,24 +190,36 @@ export function BrowserTab({ sessionId, useTabInfo }: PropsRuntime<'sidebar.righ
   useEffect(() => {
     refresh()
     publishBounds()
+    // 切回本面板时，若页面仍在（壳侧保活）就重新置为可见——否则会表现为「切走即卸载」。
+    // 非归属会话不在此列（占用态由渲染层处理，原生层 foreignViewer 亦 fail-closed）。
+    try {
+      const current = parseStatus(window.androidBridge?.browserHostStatus?.())
+      const foreign = current.ownerSessionId !== '' && sessionKey !== '' && current.ownerSessionId !== sessionKey
+      // 只在「页面在但被隐藏」时重申可见性（切走再切回）；已可见时不重复调用。
+      if (current.created && !current.visible && !foreign) window.androidBridge?.browserHostShow?.()
+    } catch {
+      /* shell unavailable */
+    }
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(publishBounds)
     if (stageRef.current !== null) observer?.observe(stageRef.current)
     window.addEventListener('resize', publishBounds)
-    const timer = window.setInterval(refresh, 1000)
+    // 侧栏收起/展开若只改可见性而不改舞台尺寸，ResizeObserver 不触发 → 原生覆盖层会留在
+    // 聊天上方。轮询同批下发 refresh + bounds，保证覆盖层随面板收起/展开即时隐藏/恢复。
+    const timer = window.setInterval(() => { refresh(); publishBounds() }, 300)
     return () => {
       observer?.disconnect()
       window.clearInterval(timer)
       window.removeEventListener('resize', publishBounds)
       try { window.androidBridge?.browserHostHide?.() } catch { /* host already gone */ }
     }
-  }, [publishBounds, refresh])
+  }, [publishBounds, refresh, sessionKey])
 
-  // 关闭即销毁（0.14.0）：标签记录消失（关 tab / 会话被删除）时 abort → 销毁页面；
-  // 切换标签只是卸载组件（记录仍在），因此 unmount 只 hide。
+  // 保活（SPEC §1.4）：切走标签只是卸载组件 → 只隐藏；标签记录消失（关标签 / 会话被删除）
+  // 也不销毁页面，与正常浏览器一致地保活（销毁仅发生在 Activity 销毁或模型显式 browserClose）。
   useEffect(() => {
     const signal = tabInfo.tab.signal
     const onAbort = () => {
-      try { window.androidBridge?.browserHostClose?.() } catch { /* host already gone */ }
+      try { window.androidBridge?.browserHostHide?.() } catch { /* host already gone */ }
     }
     signal.addEventListener('abort', onAbort)
     return () => signal.removeEventListener('abort', onAbort)
