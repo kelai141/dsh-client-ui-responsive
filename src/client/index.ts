@@ -57,7 +57,7 @@ import { SettingsDocumentAction } from './mobile/settings-document.ts'
 import { ReferenceMenuEnhancer, REFERENCE_BAR_CSS } from './mobile/reference-menu.ts'
 import { BackStackSignal } from './mobile/back-stack.ts'
 import { SessionMarker, type SessionsFace } from './mobile/session-marker.ts'
-import { BROWSER_TAB_ID, BrowserTab, browserTabDefinition } from './mobile/browser-tab.tsx'
+import { BROWSER_TAB_ID, BROWSER_TAB_KIND, BrowserTab, browserTabDefinition } from './mobile/browser-tab.tsx'
 import { IncomingDraftConsumer } from './mobile/incoming-draft.ts'
 
 // Contract exports only (export-convergence rule): the plugin surface is
@@ -353,6 +353,54 @@ export function apply(ctx: ClientContext): void {
     name: 'sidebar.right.pane.tab',
     key: BROWSER_TAB_ID,
   }, BrowserTab))
+
+  // ── AI 浏览器：模型驱动后自动「落位」到右侧栏（0.14.0 P0-2，用户语义） ──────────────
+  //
+  // 用户原话：「顶栏就是浏览器标签页切换；AI 打开浏览器后应自动在侧边栏注册/切到该面板，
+  // 人无需再点一下才符合语义。」随后澄清为：**收起状态下自动开窗（注册 tab），但不强制展开**
+  // —— 人手动展开时就能看见已经打开的浏览器界面。
+  //
+  // 为什么不能照抄虚拟屏那套：`plugins/dsh-android-vdisplay/src/client/index.ts` 的揭示循环会
+  // **先点开侧栏再 openTab**（因为当时 `revealIfOpened` 在闭态下被误判为 no-op）。但上游语义
+  // 恰恰相反（dsh-client-ui-sidebar-right/lib/client.js 的 settle 规则原文）：
+  //   「A collapsed column may stand empty; the seed waits for the expansion that would otherwise
+  //    show nothing」+「The surface a session starts with: collapsed, one pane, no tabs」
+  // 即：闭态下**可以**正常记录 tab，只是不渲染；默认页（guide）等到首次展开才 seed。
+  // 所以这里只调用 `openTab(kind)`（不带 revealIfOpened，避免闭态下被当成 no-op），
+  // **绝不点侧栏开关**——强制展开会抢走用户的界面控制权。
+  //
+  // 与虚拟屏自动露出的互斥：右侧栏同一时刻只应有一个「模型驱动」的面板落位。约定
+  // 「最近一次模型驱动的能力动作赢」：两边写同一个共享时间戳，谁新谁生效，旧的主动让位。
+  ctx.effect(() => {
+    const sidebar = ctx.get('sidebarRight') as { openTab?: (kind: string, options?: { revealIfOpened?: boolean }) => void } | undefined
+    if (sidebar?.openTab === undefined) return () => {}
+    const CLAIM_KEY = 'dsh.capabilityReveal'
+    const readClaim = (): { id: string; at: number } | undefined => {
+      try {
+        const raw = window.localStorage?.getItem(CLAIM_KEY)
+        if (raw === null || raw === undefined) return undefined
+        const parsed = JSON.parse(raw) as { id?: unknown; at?: unknown }
+        return typeof parsed.id === 'string' && typeof parsed.at === 'number'
+          ? { id: parsed.id, at: parsed.at }
+          : undefined
+      } catch { return undefined }
+    }
+    // 浏览器只在「本面板是最近一次声索者」或「尚无声索」时落位；虚拟屏声明更晚就让位。
+    const reveal = () => {
+      try {
+        const status = JSON.parse(String(window.androidBridge?.browserHostStatus?.() ?? '{}')) as { created?: unknown }
+        if (status.created !== true) return
+        const claim = readClaim()
+        if (claim !== undefined && claim.id !== BROWSER_TAB_ID && Date.now() - claim.at < 60_000) return
+        sidebar.openTab?.(BROWSER_TAB_KIND)
+        window.localStorage?.setItem(CLAIM_KEY, JSON.stringify({ id: BROWSER_TAB_ID, at: Date.now() }))
+      } catch {
+        /* 壳不可用或尚未建页：下一拍重试，不抛 */
+      }
+    }
+    const timer = window.setInterval(reveal, 1_000)
+    return () => { window.clearInterval(timer) }
+  }, 'ui-responsive: AI browser auto-place into right sidebar (no forced expand)')
 
   // Mobile reference menu (apk #163): rows get a leading checkbox (multi-select) and a
   // directory row body drills in instead of referencing the folder; upstream keeps the

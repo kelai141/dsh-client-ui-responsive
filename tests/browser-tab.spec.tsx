@@ -145,3 +145,57 @@ describe('AI 浏览器 Files 侧栏工作台（0.14.0 极简面板）', () => {
     expect(browserHostViewport).not.toHaveBeenCalled()
   })
 })
+
+/** 找到 apply() 注册的揭示 effect（用桩 ctx 真跑 apply）。 */
+async function loadRevealEffect(opts: { status: () => string; openTab: (kind: string, o?: unknown) => void }) {
+  const { apply } = await import('../src/client/index.ts')
+  const effects: Array<{ name: string; run: () => (() => void) | void }> = []
+  const stub = {
+    effect: (cb: () => (() => void) | void, name?: string) => { effects.push({ name: name ?? '', run: cb }); return () => {} },
+    slots: { inject: () => () => {}, register: () => () => {} },
+    get: (key: string) => {
+      if (key === 'sidebarRight') return { openTab: opts.openTab }
+      if (key === 'sidebarRightTabs') return { register: () => () => {} }
+      return undefined
+    },
+    sessions: { subscribe: () => () => {} },
+    logger: () => ({ warn: () => {} }),
+    on: () => () => {},
+  }
+  ;(globalThis as Record<string, unknown>).window = globalThis.window
+  ;(window as unknown as Record<string, unknown>).androidBridge = { browserHostStatus: opts.status }
+  apply(stub as never)
+  const found = effects.find((e) => e.name.includes('auto-place'))
+  return found
+}
+
+describe('AI 浏览器自动落位到右侧栏（0.14.0 P0-2，用户语义）', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('页面已创建时调用 openTab，且**不带** revealIfOpened（收起态也必须生效）', async () => {
+    const calls: Array<{ kind: string; options?: unknown }> = []
+    const eff = await loadRevealEffect({
+      status: () => JSON.stringify({ created: true }),
+      openTab: (kind, options) => { calls.push({ kind, options }) },
+    })
+    expect(eff).toBeDefined()
+    await act(async () => { eff!.run() })
+    await act(async () => { vi.advanceTimersByTime(1_100) })
+    expect(calls.length).toBeGreaterThan(0)
+    expect(calls[0].kind).toBe(BROWSER_TAB_KIND)
+    // 关键：不得传 revealIfOpened——上游语义下它在闭态会被当成 no-op；也不得强制展开。
+    expect(calls[0].options).toBeUndefined()
+  })
+
+  it('页面未创建时不落位（避免开一个空面板）', async () => {
+    const calls: unknown[] = []
+    const eff = await loadRevealEffect({
+      status: () => JSON.stringify({ created: false }),
+      openTab: (kind, options) => { calls.push({ kind, options }) },
+    })
+    await act(async () => { eff!.run() })
+    await act(async () => { vi.advanceTimersByTime(3_000) })
+    expect(calls.length).toBe(0)
+  })
+})
