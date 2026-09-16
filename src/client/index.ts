@@ -381,9 +381,9 @@ export function apply(ctx: ClientContext): void {
     let seen = ''
     /** 收起期间出现过的新页面：等用户展开时补一次落位。 */
     let pending = false
-    // 收起信号在**祖先**元素上（实测：data-rightbar-collapsed 与 data-rightbar-col 不同元素，
-    // 后者身上恒为此属性 null），故用属性选择器全文档查，而不是只读 col 一层。
-    const collapsedNow = (): boolean => document.querySelector('[data-rightbar-collapsed="true"]') !== null
+    // 权威收起信号 = 上游展开控件是否在场（`ExpandButton` 只在收起时渲染；
+    // `data-rightbar-collapsed` 是常量 "true"，用作状态会恒判收起 → 永不落位）。
+    const collapsedNow = (): boolean => document.querySelector('[data-sidebar-right-expand]') !== null
     const tick = () => {
       try {
         const status = JSON.parse(String(window.androidBridge?.browserHostStatus?.() ?? '{}')) as {

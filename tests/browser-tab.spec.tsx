@@ -172,8 +172,8 @@ async function loadRevealEffect(opts: { status: () => string; openTab: (kind: st
 describe('AI 浏览器自动落位到右侧栏（0.14.0 P0-2：边沿触发 + 收起时延迟落位）', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    // 默认「侧栏展开」；收起用例单独覆盖。
-    document.body.innerHTML = '<div data-rightbar-col="true" data-rightbar-collapsed="false"></div>'
+    // 默认「侧栏展开」= 展开控件不在场；收起用例单独覆盖。
+    document.body.innerHTML = ''
   })
   afterEach(() => {
     vi.useRealTimers()
@@ -210,7 +210,8 @@ describe('AI 浏览器自动落位到右侧栏（0.14.0 P0-2：边沿触发 + �
   })
 
   it('收起态出现新页面：**不调 openTab**（不强制展开），展开后补一次', async () => {
-    document.body.innerHTML = '<div data-rightbar-col="true" data-rightbar-collapsed="true"></div>'
+    // 收起态的设备实况 = 上游展开控件在场（权威信号）。
+    document.body.innerHTML = '<button data-sidebar-right-expand="true"></button>'
     const calls: Array<{ k: string; o?: unknown }> = []
     const eff = await loadWithQueue([page(1), page(2), page(2), page(2)], (k, o) => { calls.push({ k, o }) })
     await act(async () => { eff!.run() })
@@ -218,7 +219,7 @@ describe('AI 浏览器自动落位到右侧栏（0.14.0 P0-2：边沿触发 + �
     // 收起期间绝不落位——这是用户报「收起后自动展开」的根因。
     expect(calls.length).toBe(0)
     // 用户手动展开 -> 补一次落位。
-    document.body.innerHTML = '<div data-rightbar-col="true" data-rightbar-collapsed="false"></div>'
+    document.body.innerHTML = ''
     await act(async () => { vi.advanceTimersByTime(2_000) })
     expect(calls.length).toBe(1)
   })
@@ -258,16 +259,26 @@ describe('可见性判据：收起 vs 全屏（0.14.0 设备实证三次修正�
     return sent.length > 0 ? sent[sent.length - 1].visible as boolean : undefined
   }
 
-  // jsdom 的按钮/舞台来自组件自身；这里只断言「收起」与「全屏」两个标记的差别。
-  it('fullscreen 标记下不得被判为收起（页面必须可见）', async () => {
+  /**
+   * 语义锁定（0.14.0 四次踩坑后固化）：收起判据**只能**用「上游展开控件是否在场」。
+   * 被否掉的三个候选（各自都会造成用户可见缺陷）：
+   *   - `data-sidebar-right-open`：收起态仍为 "true" → 恒判可见（覆盖层压在聊天上）
+   *   - `[data-rightbar-col]` 的 collapsed 属性：该元素上根本没有此属性
+   *   - frame 上的 `data-rightbar-collapsed`：**恒为 "true"** 的常量 → 恒判收起（页面永久隐藏，
+   *     并让虚拟屏永不落位——正是 verify-vdisplay-viewer 回归的原因）
+   */
+  it('收起判据用「展开控件在场」，且不再使用任何常量式属性', async () => {
     const src = await import('node:fs').then((fs) => fs.readFileSync('src/client/mobile/browser-tab.tsx', 'utf8'))
-    // 语义锁定：判据必须同时考虑 fullscreen 放行，否则全屏页面会被隐藏。
-    expect(src).toContain('data-rightbar-fullscreen')
-    expect(src).toMatch(/const collapsed = !fullscreen && stage\.closest\('[^']*collapsed="true"\]'\)/)
+    // 必须用权威信号
+    expect(src).toContain("document.querySelector('[data-sidebar-right-expand]')")
+    // 不得把常量属性当状态读（注释里可以解释，但代码中不得出现读它的表达式）
+    expect(src).not.toMatch(/querySelector(All)?\(\s*'\[data-rightbar-collapsed[^)]*\)\s*!==\s*null/)
+    expect(src).not.toMatch(/closest\(\s*'\[data-rightbar-collapsed/)
   })
 
-  it('收起标记的查找必须是祖先 closest（col 自身没有该属性）', async () => {
-    const src = await import('node:fs').then((fs) => fs.readFileSync('src/client/mobile/browser-tab.tsx', 'utf8'))
-    expect(src).not.toMatch(/querySelector\('[^']*\[data-rightbar-col\]'\)[\s\S]{0,120}getAttribute\('data-rightbar-collapsed'\)/)
+  it('自动落位循环同样用「展开控件在场」作为收起判据', async () => {
+    const src = await import('node:fs').then((fs) => fs.readFileSync('src/client/index.ts', 'utf8'))
+    expect(src).toContain("document.querySelector('[data-sidebar-right-expand]')")
+    expect(src).not.toMatch(/querySelector\(\s*'\[data-rightbar-collapsed[^)]*\)\s*!==\s*null/)
   })
 })
