@@ -169,31 +169,63 @@ async function loadRevealEffect(opts: { status: () => string; openTab: (kind: st
   return found
 }
 
-describe('AI 浏览器自动落位到右侧栏（0.14.0 P0-2，用户语义）', () => {
-  beforeEach(() => { vi.useFakeTimers() })
-  afterEach(() => { vi.useRealTimers() })
+describe('AI 浏览器自动落位到右侧栏（0.14.0 P0-2：边沿触发 + 收起时延迟落位）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    // 默认「侧栏展开」；收起用例单独覆盖。
+    document.body.innerHTML = '<div data-rightbar-col="true" data-rightbar-collapsed="false"></div>'
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    document.body.innerHTML = ''
+  })
 
-  it('页面已创建时调用 openTab，且**不带** revealIfOpened（收起态也必须生效）', async () => {
-    const calls: Array<{ kind: string; options?: unknown }> = []
-    const eff = await loadRevealEffect({
-      status: () => JSON.stringify({ created: true }),
-      openTab: (kind, options) => { calls.push({ kind, options }) },
+  /** 让 status 可随调用变化，模拟壳侧状态演进。 */
+  function loadWithQueue(frames: string[], openTab: (kind: string, o?: unknown) => void) {
+    let i = 0
+    return loadRevealEffect({
+      status: () => frames[Math.min(i++, frames.length - 1)] ?? '{}',
+      openTab,
     })
-    expect(eff).toBeDefined()
+  }
+
+  const page = (gen: number, url = 'https://example.com/') =>
+    JSON.stringify({ created: true, pageGeneration: gen, tabs: [{ tabId: 'tab-1', url }] })
+
+  it('首次观测只建立基线：不动作（避免启动时抢侧栏）', async () => {
+    const calls: unknown[] = []
+    const eff = await loadWithQueue([page(1)], (k, o) => { calls.push({ k, o }) })
     await act(async () => { eff!.run() })
-    await act(async () => { vi.advanceTimersByTime(1_100) })
-    expect(calls.length).toBeGreaterThan(0)
-    expect(calls[0].kind).toBe(BROWSER_TAB_KIND)
-    // 关键：不得传 revealIfOpened——上游语义下它在闭态会被当成 no-op；也不得强制展开。
-    expect(calls[0].options).toBeUndefined()
+    await act(async () => { vi.advanceTimersByTime(3_000) })
+    expect(calls.length).toBe(0)
+  })
+
+  it('出现「新页面」（边沿）时落位一次，且不重复触发', async () => {
+    const calls: Array<{ k: string; o?: unknown }> = []
+    const eff = await loadWithQueue([page(1), page(1), page(2), page(2), page(2)], (k, o) => { calls.push({ k, o }) })
+    await act(async () => { eff!.run() })
+    await act(async () => { vi.advanceTimersByTime(5_000) })
+    expect(calls.length).toBe(1)
+    expect(calls[0].k).toBe(BROWSER_TAB_KIND)
+  })
+
+  it('收起态出现新页面：**不调 openTab**（不强制展开），展开后补一次', async () => {
+    document.body.innerHTML = '<div data-rightbar-col="true" data-rightbar-collapsed="true"></div>'
+    const calls: Array<{ k: string; o?: unknown }> = []
+    const eff = await loadWithQueue([page(1), page(2), page(2), page(2)], (k, o) => { calls.push({ k, o }) })
+    await act(async () => { eff!.run() })
+    await act(async () => { vi.advanceTimersByTime(2_500) })
+    // 收起期间绝不落位——这是用户报「收起后自动展开」的根因。
+    expect(calls.length).toBe(0)
+    // 用户手动展开 -> 补一次落位。
+    document.body.innerHTML = '<div data-rightbar-col="true" data-rightbar-collapsed="false"></div>'
+    await act(async () => { vi.advanceTimersByTime(2_000) })
+    expect(calls.length).toBe(1)
   })
 
   it('页面未创建时不落位（避免开一个空面板）', async () => {
     const calls: unknown[] = []
-    const eff = await loadRevealEffect({
-      status: () => JSON.stringify({ created: false }),
-      openTab: (kind, options) => { calls.push({ kind, options }) },
-    })
+    const eff = await loadWithQueue([JSON.stringify({ created: false })], (k, o) => { calls.push({ k, o }) })
     await act(async () => { eff!.run() })
     await act(async () => { vi.advanceTimersByTime(3_000) })
     expect(calls.length).toBe(0)

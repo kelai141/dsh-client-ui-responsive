@@ -360,47 +360,61 @@ export function apply(ctx: ClientContext): void {
   // 人无需再点一下才符合语义。」随后澄清为：**收起状态下自动开窗（注册 tab），但不强制展开**
   // —— 人手动展开时就能看见已经打开的浏览器界面。
   //
-  // 为什么不能照抄虚拟屏那套：`plugins/dsh-android-vdisplay/src/client/index.ts` 的揭示循环会
-  // **先点开侧栏再 openTab**（因为当时 `revealIfOpened` 在闭态下被误判为 no-op）。但上游语义
-  // 恰恰相反（dsh-client-ui-sidebar-right/lib/client.js 的 settle 规则原文）：
-  //   「A collapsed column may stand empty; the seed waits for the expansion that would otherwise
-  //    show nothing」+「The surface a session starts with: collapsed, one pane, no tabs」
-  // 即：闭态下**可以**正常记录 tab，只是不渲染；默认页（guide）等到首次展开才 seed。
-  // 所以这里只调用 `openTab(kind)`（不带 revealIfOpened，避免闭态下被当成 no-op），
-  // **绝不点侧栏开关**——强制展开会抢走用户的界面控制权。
+  // 与虚拟屏自动露出的互斥由「各自边沿触发 + 用户收起即静默」共同保证：两侧都不再持续抢焦点，
+  // 同一时刻只有「新出现的能力面板」会落位一次。
   //
-  // 与虚拟屏自动露出的互斥：右侧栏同一时刻只应有一个「模型驱动」的面板落位。约定
-  // 「最近一次模型驱动的能力动作赢」：两边写同一个共享时间戳，谁新谁生效，旧的主动让位。
+  // 两个必须遵守的上游事实（读源码 + 设备实证，别再改回旧做法）：
+  //  1. `openTab` 会**展开侧栏**：`dsh-client-ui-sidebar-right/lib/client.js` 的 `openContent` 里第一条 op 就是
+  //     `planSetExpanded(state, true)`——上游设计「内容看不见就不算打开」。所以**收起态下调 `openTab`
+  //     必然强制展开**，与用户语义（收起态自动开窗但不强制展开）直接冲突。
+  //  2. `data-sidebar-right-open` 在收起态**仍然存在**，舞台也仍有布局矩形——不能用它判断可见性。
+  //
+  // 所以正确结构是**边沿触发 + 延迟落位**，而不是「每秒无条件 openTab」：
+  //  - 只在**新页面出现**（签名变化 = 边沿）时动作，绝不因为「页面还在」而反复动作。
+  //    （旧的每秒轮询是电平触发的持续断言，后果：用户一收起就被下一拍拽开、点 × 关掉又被切回来。）
+  //  - 收起态**不调 openTab**，只记 `pending`（待落位）；等观察到用户把侧栏展开时再补一次 openTab。
+  //    这正是用户要的：「收起状态下自动创建窗口而不强制展开，用户手动展开就能看见」。
   ctx.effect(() => {
     const sidebar = ctx.get('sidebarRight') as { openTab?: (kind: string, options?: { revealIfOpened?: boolean }) => void } | undefined
     if (sidebar?.openTab === undefined) return () => {}
-    const CLAIM_KEY = 'dsh.capabilityReveal'
-    const readClaim = (): { id: string; at: number } | undefined => {
+    /** 上一次已处理过的页面签名（边沿检测）；null = 还没读到过壳侧状态。 */
+    let seen = ''
+    /** 收起期间出现过的新页面：等用户展开时补一次落位。 */
+    let pending = false
+    // 收起信号在**祖先**元素上（实测：data-rightbar-collapsed 与 data-rightbar-col 不同元素，
+    // 后者身上恒为此属性 null），故用属性选择器全文档查，而不是只读 col 一层。
+    const collapsedNow = (): boolean => document.querySelector('[data-rightbar-collapsed="true"]') !== null
+    const tick = () => {
       try {
-        const raw = window.localStorage?.getItem(CLAIM_KEY)
-        if (raw === null || raw === undefined) return undefined
-        const parsed = JSON.parse(raw) as { id?: unknown; at?: unknown }
-        return typeof parsed.id === 'string' && typeof parsed.at === 'number'
-          ? { id: parsed.id, at: parsed.at }
-          : undefined
-      } catch { return undefined }
-    }
-    // 浏览器只在「本面板是最近一次声索者」或「尚无声索」时落位；虚拟屏声明更晚就让位。
-    const reveal = () => {
-      try {
-        const status = JSON.parse(String(window.androidBridge?.browserHostStatus?.() ?? '{}')) as { created?: unknown }
+        const status = JSON.parse(String(window.androidBridge?.browserHostStatus?.() ?? '{}')) as {
+          created?: unknown; pageGeneration?: unknown; tabs?: unknown
+        }
         if (status.created !== true) return
-        const claim = readClaim()
-        if (claim !== undefined && claim.id !== BROWSER_TAB_ID && Date.now() - claim.at < 60_000) return
+        // 签名 = 「哪些页 + 各自代次」，代表「页面集合的实质性变化」。签名不变即什么都不做。
+        const tabs = Array.isArray(status.tabs) ? (status.tabs as Array<Record<string, unknown>>) : []
+        const signature = tabs.map((t) => String(t.tabId) + ':' + String(t.url)).join('|') + '#' + String(status.pageGeneration)
+        if (seen !== '' && signature === seen) {
+          // 无变化。唯一例外：收起期间攒下的待落位，等用户展开时补。
+          if (pending && !collapsedNow()) {
+            pending = false
+            sidebar.openTab?.(BROWSER_TAB_KIND)
+          }
+          return
+        }
+        const first = seen === ''
+        seen = signature
+        // 首次观测只建立基线，不动作：页面可能是上次会话遗留的，不该在启动时抢侧栏。
+        if (first) return
+        if (collapsedNow()) { pending = true; return }
         sidebar.openTab?.(BROWSER_TAB_KIND)
-        window.localStorage?.setItem(CLAIM_KEY, JSON.stringify({ id: BROWSER_TAB_ID, at: Date.now() }))
       } catch {
-        /* 壳不可用或尚未建页：下一拍重试，不抛 */
+        /* 壳不可用：下一拍再看，不抛 */
       }
     }
-    const timer = window.setInterval(reveal, 1_000)
+    // 轮询只用来**发现边沿**（1s 足够），不再承担「保持置前」的语义。
+    const timer = window.setInterval(tick, 1_000)
     return () => { window.clearInterval(timer) }
-  }, 'ui-responsive: AI browser auto-place into right sidebar (no forced expand)')
+  }, 'ui-responsive: AI browser auto-place into right sidebar (edge-triggered, deferred while collapsed)')
 
   // Mobile reference menu (apk #163): rows get a leading checkbox (multi-select) and a
   // directory row body drills in instead of referencing the folder; upstream keeps the
