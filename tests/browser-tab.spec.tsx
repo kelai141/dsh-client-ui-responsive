@@ -231,3 +231,43 @@ describe('AI 浏览器自动落位到右侧栏（0.14.0 P0-2：边沿触发 + �
     expect(calls.length).toBe(0)
   })
 })
+
+describe('可见性判据：收起 vs 全屏（0.14.0 设备实证三次修正）', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers(); document.body.innerHTML = '' })
+
+  /** 渲一个带舞台的面板，并按给定标记布置祖先链，取回 publishBounds 会发出的 visible。 */
+  async function visibleWith(ancestors: string): Promise<boolean | undefined> {
+    const sent: Array<Record<string, unknown>> = []
+    delete window.androidBridge
+    ;(window as unknown as Record<string, unknown>).androidBridge = {
+      browserHostStatus: () => JSON.stringify({ ok: true, available: true, created: true, visible: true, url: 'https://e.test/', title: '', pageGeneration: 1, viewportId: 'device', viewportWidth: 0, viewportHeight: 0, identityId: 'android-real', ownerSessionId: '', atTop: true, scrollDirection: 0, reason: '' }),
+      browserHostBounds: (raw: string) => { sent.push(JSON.parse(raw) as Record<string, unknown>) },
+      browserHostHide: () => '',
+      browserHostShow: () => '',
+    }
+    const host = document.createElement('div')
+    host.innerHTML = ancestors
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    const useTabInfo = () => ({ tab: { signal: new AbortController().signal } })
+    await act(async () => { root!.render(<BrowserTab {...({ sessionId: 's1', useTabInfo } as never)} />) })
+    await act(async () => { vi.advanceTimersByTime(400) })
+    await act(async () => { root!.unmount() })
+    host.remove()
+    return sent.length > 0 ? sent[sent.length - 1].visible as boolean : undefined
+  }
+
+  // jsdom 的按钮/舞台来自组件自身；这里只断言「收起」与「全屏」两个标记的差别。
+  it('fullscreen 标记下不得被判为收起（页面必须可见）', async () => {
+    const src = await import('node:fs').then((fs) => fs.readFileSync('src/client/mobile/browser-tab.tsx', 'utf8'))
+    // 语义锁定：判据必须同时考虑 fullscreen 放行，否则全屏页面会被隐藏。
+    expect(src).toContain('data-rightbar-fullscreen')
+    expect(src).toMatch(/const collapsed = !fullscreen && stage\.closest\('[^']*collapsed="true"\]'\)/)
+  })
+
+  it('收起标记的查找必须是祖先 closest（col 自身没有该属性）', async () => {
+    const src = await import('node:fs').then((fs) => fs.readFileSync('src/client/mobile/browser-tab.tsx', 'utf8'))
+    expect(src).not.toMatch(/querySelector\('[^']*\[data-rightbar-col\]'\)[\s\S]{0,120}getAttribute\('data-rightbar-collapsed'\)/)
+  })
+})

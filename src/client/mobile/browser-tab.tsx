@@ -168,13 +168,16 @@ export function BrowserTab({ sessionId, useTabInfo }: PropsRuntime<'sidebar.righ
     const rect = stage.getBoundingClientRect()
     const style = getComputedStyle(stage)
     const panel = stage.closest('[data-sidebar-right-panel]')
-    // 可见性判据（0.14.0 设备实证两次修正，别再简化）：
+    // 可见性判据（0.14.0 设备实证三次修正，别再简化）：
     //  1) **不能只看 panel 的 data-sidebar-right-open**：收起态下该属性仍为 "true"、舞台仍有
-    //     450x650 布局矩形，旧判据会算出 visible=true → 原生覆盖层留在聊天上方。
+    //     450x650 布局矩形，只看它会算出 visible=true → 原生覆盖层留在聊天上方。
     //  2) **data-rightbar-collapsed 不在 [data-rightbar-col] 上**：实测它在**祖先** frame 元素上
-    //     （col 的 className 恒无此属性，直接读 col.getAttribute 得到 null）。所以必须从舞台
-    //     **向上查找祖先**，而不是只查一层。
-    const collapsed = stage.closest('[data-rightbar-collapsed="true"]') !== null
+    //     （col 的 className 恒无此属性）。必须从舞台向上 closest() 查找。
+    //  3) **但 fullscreen 态同样是 collapsed=true**：全屏面板列宽为 0、祖先 collapsed 为 true，
+    //     可面板**确实可见**、舞台仍有 450x650 矩形。只用第 2 条会把全屏页面误判为不可见
+    //     （页面被隐藏）。故 fullscreen 必须单独放行。
+    const fullscreen = stage.closest('[data-rightbar-fullscreen="true"]') !== null
+    const collapsed = !fullscreen && stage.closest('[data-rightbar-collapsed="true"]') !== null
     const panelOpen = panel !== null && panel.getAttribute('data-sidebar-right-open') !== null
     const visible = !occupiedRef.current && !collapsed && panelOpen &&
       rect.width > 1 && rect.height > 1 &&
@@ -205,7 +208,9 @@ export function BrowserTab({ sessionId, useTabInfo }: PropsRuntime<'sidebar.righ
       const foreign = current.ownerSessionId !== '' && sessionKey !== '' && current.ownerSessionId !== sessionKey
       // 只在「面板确实展开着 + 页面在但被隐藏」时重申可见性（切走再切回）。
       // 收起态绝不重申：用户刚收起来，再 show 一次就是抢控制权（设备实测的「自动展开」）。
-      const collapsedNow = document.querySelector('[data-rightbar-collapsed="true"]') !== null
+      // 全屏态列宽为 0 但面板可见，不算「收起」（否则从全屏切回会不恢复页面）。
+      const fullscreenNow = document.querySelector('[data-rightbar-fullscreen="true"]') !== null
+      const collapsedNow = !fullscreenNow && document.querySelector('[data-rightbar-collapsed="true"]') !== null
       if (current.created && !current.visible && !foreign && !collapsedNow) window.androidBridge?.browserHostShow?.()
     } catch {
       /* shell unavailable */
