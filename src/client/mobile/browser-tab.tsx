@@ -348,23 +348,18 @@ export function BrowserTab({ sessionId, useTabInfo }: PropsRuntime<'sidebar.righ
   const pageOpen = status.created && status.url !== 'about:blank' && status.url !== ''
   const sameAsPage = pageOpen && normalizeAddress(address) === normalizeAddress(status.url)
   const buttonLabel = sameAsPage ? '刷新' : '打开'
-  const occupied = status.ownerSessionId !== '' && sessionKey !== '' && status.ownerSessionId !== sessionKey
-
-  // 占用态变化立即重发 bounds（原生层与控件一起让位给「由会话 X 使用中」）。
+  // ── 跨会话占用态已移除（0.14.0 用户口径：按会话隔离、互不占用） ──────────────────
+  //
+  // 原实现在「壳侧归属 ≠ 本面板会话」时把整个面板替换成「由会话 X 使用中」。那套模型的前提是
+  // 工作台全局单实例 + 单向归属锁，于是切到别的对话什么也看不到、且**只有原会话能解锁**
+  // （原会话被删则永久锁死）。现在壳侧改为每个会话各自一个 Workspace：
+  //   - 本面板的会话就是当前工作台（bounds 下推时已切换过去），`ownerSessionId` 恒等于本会话；
+  //   - 别的会话的页面由原生层置为 GONE，根本不会出现"看到别人的页面"，也无需占用提示。
+  // 因此 `occupiedRef` 恒为 false；保留该 ref 只为 publishBounds 的既有签名稳定。
   useEffect(() => {
-    occupiedRef.current = occupied
+    occupiedRef.current = false
     publishBounds()
-  }, [occupied, publishBounds])
-
-  if (occupied) {
-    return (
-      <section className={css.root} data-plugin="android-browser">
-        <div ref={stageRef} className={css.stage} data-testid="browser-stage">
-          <p className={css.occupied}>由会话 {status.ownerSessionId.slice(-6)} 使用中</p>
-        </div>
-      </section>
-    )
-  }
+  }, [publishBounds])
 
   return (
     <section className={css.root} data-plugin="android-browser">
