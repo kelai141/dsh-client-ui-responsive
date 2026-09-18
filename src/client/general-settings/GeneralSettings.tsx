@@ -53,7 +53,7 @@ function readImmersive(): boolean {
 }
 
 /**
- * Render the Android general-settings rows (immersive toggle).
+ * Render the Android general-settings rows (immersive and screen scope).
  * @param props - composed slot props (contract/slots.ts).
  * @returns the section element tree.
  */

@@ -30,6 +30,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { ExportResultDialog } from './ExportResultDialog.tsx'
 import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
 import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
+import { ATTACHMENT_PICKER_MENU_CSS } from './attachment-picker-menu.css.ts'
+import { AttachmentPickerMenuEnhancer } from './mobile/attachment-picker-menu.ts'
 import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
 import { COMPOSER_INSETS_CSS } from './composer-insets.css.ts'
 import { TRAJECTORY_DETAILS_CSS } from './trajectory-details.css.ts'
@@ -38,6 +40,7 @@ import { ComposerPopupGuard } from './composer-popup-guard.ts'
 import { SESSION_LOG_DIALOG_HIDE_CSS } from './session-log-dialog.css.ts'
 import { SessionLogDialogObserver } from './session-log-dialog-observer.ts'
 import { DevSection } from './dev-section/DevSection.tsx'
+import { PhoneControlSection } from './dev-section/phone-control.tsx'
 import { DEV_SECTION_CSS } from './dev-section/dev-section.css.ts'
 import { GeneralSettings } from './general-settings/GeneralSettings.tsx'
 import { ThemeBridge } from './theme-bridge.ts'
@@ -54,7 +57,8 @@ import { SettingsDocumentAction } from './mobile/settings-document.ts'
 import { ReferenceMenuEnhancer, REFERENCE_BAR_CSS } from './mobile/reference-menu.ts'
 import { BackStackSignal } from './mobile/back-stack.ts'
 import { SessionMarker, type SessionsFace } from './mobile/session-marker.ts'
-import { BROWSER_TAB_ID, BrowserTab, browserTabDefinition } from './mobile/browser-tab.tsx'
+import { BROWSER_TAB_ID, BROWSER_TAB_KIND, BrowserTab, browserTabDefinition } from './mobile/browser-tab.tsx'
+import { IncomingDraftConsumer } from './mobile/incoming-draft.ts'
 
 // Contract exports only (export-convergence rule): the plugin surface is
 // `apply` and `inject`; every component, marker, and helper stays internal.
@@ -68,7 +72,36 @@ declare global {
 }
 
 /** Required services: composition, copy/theme faces, the runtime sessions, and the frame's panel actions. */
-export const inject = ['slots', 'theme', 'sessions', 'layout']
+export const inject = ['slots', 'theme', 'sessions', 'workspaces', 'uiWorkspace', 'layout', 'conversation']
+
+/** Narrow runtime face for the existing Conversation draft/upload service. */
+interface IncomingConversationFace {
+  /** Build-time J1 seam over the normal composer draft/upload path. */
+  addFiles(sessionId: unknown, files: readonly File[]): boolean
+  input: {
+    for(scope: unknown): {
+      notify(level: 'info' | 'error', text: string): void
+    }
+  }
+}
+
+/** Session service methods used by the process-local external attachment hand-off. */
+interface IncomingSessionsFace {
+  refresh(): Promise<void>
+  open(id: unknown): void
+  scope(id: unknown): unknown | undefined
+}
+
+/** Standard workspace create path used before connecting its blank Session. */
+interface IncomingWorkspacesFace {
+  create(input: { path: string }): Promise<{ workspaceId: unknown }>
+}
+
+/** Standard workspace navigation face; it returns a locally addressable blank session. */
+interface IncomingUiWorkspaceFace {
+  connectWorkspace(workspaceId: unknown): Promise<unknown>
+}
+
 
 /** Append one stylesheet and return its disposer. */
 function injectStyle(id: string, css: string): () => void {
@@ -125,6 +158,16 @@ export function apply(ctx: ClientContext): void {
     guard.attach()
     return () => { guard.detach() }
   }, 'ui-responsive: composer popup geometry guard')
+
+  // The upstream paperclip keeps one hidden file input and one addFiles/upload admission path.
+  // Add an upward DSH-native source menu in front of that exact input rather than a second picker
+  // bridge: each row changes accept in its own user gesture, clicks the existing input, then restores it.
+  ctx.effect(() => injectStyle('attachment-picker-menu', ATTACHMENT_PICKER_MENU_CSS), 'ui-responsive: attachment picker source menu styles')
+  ctx.effect(() => {
+    const picker = new AttachmentPickerMenuEnhancer()
+    picker.attach()
+    return () => { picker.detach() }
+  }, 'ui-responsive: paperclip attachment/image source menu')
 
   // Trajectory local details panel (issue apk#67): on narrow screens the
   // upstream panel is confined between the timeline bar and the composer seat.
@@ -185,6 +228,14 @@ export function apply(ctx: ClientContext): void {
     // 开发者选项子区（2026-08-23）：ADB 授权面板等安卓调试设施挂进此槽——不开独立导航行。
     children: { 'settings.dev.item': { kind: 'list', scope: 'root' } },
   }, DevSection))
+
+  // 手机控制（0.14.0 用户定例）：把屏幕/Shizuku/虚拟屏/浮窗/无障碍/强制销毁收进独立设置页。
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'android-phone-control',
+    order: 98,
+    label: () => '手机控制',
+  }, PhoneControlSection))
 
   // Android general-settings rows (issue #59): immersive status-bar toggle.
   // 0.13.3 (D6): the font-size slider retired — upstream ui-theme fontSize
@@ -303,6 +354,68 @@ export function apply(ctx: ClientContext): void {
     key: BROWSER_TAB_ID,
   }, BrowserTab))
 
+  // ── AI 浏览器：模型驱动后自动「落位」到右侧栏（0.14.0 P0-2，用户语义） ──────────────
+  //
+  // 用户原话：「顶栏就是浏览器标签页切换；AI 打开浏览器后应自动在侧边栏注册/切到该面板，
+  // 人无需再点一下才符合语义。」随后澄清为：**收起状态下自动开窗（注册 tab），但不强制展开**
+  // —— 人手动展开时就能看见已经打开的浏览器界面。
+  //
+  // 与虚拟屏自动露出的互斥由「各自边沿触发 + 用户收起即静默」共同保证：两侧都不再持续抢焦点，
+  // 同一时刻只有「新出现的能力面板」会落位一次。
+  //
+  // 两个必须遵守的上游事实（读源码 + 设备实证，别再改回旧做法）：
+  //  1. `openTab` 会**展开侧栏**：`dsh-client-ui-sidebar-right/lib/client.js` 的 `openContent` 里第一条 op 就是
+  //     `planSetExpanded(state, true)`——上游设计「内容看不见就不算打开」。所以**收起态下调 `openTab`
+  //     必然强制展开**，与用户语义（收起态自动开窗但不强制展开）直接冲突。
+  //  2. `data-sidebar-right-open` 在收起态**仍然存在**，舞台也仍有布局矩形——不能用它判断可见性。
+  //
+  // 所以正确结构是**边沿触发 + 延迟落位**，而不是「每秒无条件 openTab」：
+  //  - 只在**新页面出现**（签名变化 = 边沿）时动作，绝不因为「页面还在」而反复动作。
+  //    （旧的每秒轮询是电平触发的持续断言，后果：用户一收起就被下一拍拽开、点 × 关掉又被切回来。）
+  //  - 收起态**不调 openTab**，只记 `pending`（待落位）；等观察到用户把侧栏展开时再补一次 openTab。
+  //    这正是用户要的：「收起状态下自动创建窗口而不强制展开，用户手动展开就能看见」。
+  ctx.effect(() => {
+    const sidebar = ctx.get('sidebarRight') as { openTab?: (kind: string, options?: { revealIfOpened?: boolean }) => void } | undefined
+    if (sidebar?.openTab === undefined) return () => {}
+    /** 上一次已处理过的页面签名（边沿检测）；null = 还没读到过壳侧状态。 */
+    let seen = ''
+    /** 收起期间出现过的新页面：等用户展开时补一次落位。 */
+    let pending = false
+    // 权威收起信号 = 上游展开控件是否在场（`ExpandButton` 只在收起时渲染；
+    // `data-rightbar-collapsed` 是常量 "true"，用作状态会恒判收起 → 永不落位）。
+    const collapsedNow = (): boolean => document.querySelector('[data-sidebar-right-expand]') !== null
+    const tick = () => {
+      try {
+        const status = JSON.parse(String(window.androidBridge?.browserHostStatus?.() ?? '{}')) as {
+          created?: unknown; pageGeneration?: unknown; tabs?: unknown
+        }
+        if (status.created !== true) return
+        // 签名 = 「哪些页 + 各自代次」，代表「页面集合的实质性变化」。签名不变即什么都不做。
+        const tabs = Array.isArray(status.tabs) ? (status.tabs as Array<Record<string, unknown>>) : []
+        const signature = tabs.map((t) => String(t.tabId) + ':' + String(t.url)).join('|') + '#' + String(status.pageGeneration)
+        if (seen !== '' && signature === seen) {
+          // 无变化。唯一例外：收起期间攒下的待落位，等用户展开时补。
+          if (pending && !collapsedNow()) {
+            pending = false
+            sidebar.openTab?.(BROWSER_TAB_KIND)
+          }
+          return
+        }
+        const first = seen === ''
+        seen = signature
+        // 首次观测只建立基线，不动作：页面可能是上次会话遗留的，不该在启动时抢侧栏。
+        if (first) return
+        if (collapsedNow()) { pending = true; return }
+        sidebar.openTab?.(BROWSER_TAB_KIND)
+      } catch {
+        /* 壳不可用：下一拍再看，不抛 */
+      }
+    }
+    // 轮询只用来**发现边沿**（1s 足够），不再承担「保持置前」的语义。
+    const timer = window.setInterval(tick, 1_000)
+    return () => { window.clearInterval(timer) }
+  }, 'ui-responsive: AI browser auto-place into right sidebar (edge-triggered, deferred while collapsed)')
+
   // Mobile reference menu (apk #163): rows get a leading checkbox (multi-select) and a
   // directory row body drills in instead of referencing the folder; upstream keeps the
   // settle-pick for files and for the trailing chevron.
@@ -355,59 +468,59 @@ export function apply(ctx: ClientContext): void {
     }
   }, 'ui-responsive: export result dialog bridge')
 
-  // PRD F5 消费端（2026-08-23 补齐）：外部文件/图片 → 宿主 dsh-android-file-open 已创建
-  // 强制新会话（种子消息 = @文件路径 + 上下文）。本消费端轮询 GET /api/android/file-incoming，
-  // 对带 sessionId 的条目：自动切到该会话（绝不并入既有会话）→ claim 删除条目。
-  // 失败重试（会话可能尚未同步进客户端列表）；非安卓宿主无该端点时静默跳过。
+  // External open/share enters a blank temporary session with one normal file attachment draft.
+  // The host queue supplies only opaque metadata; this consumer claims and streams a source only
+  // after the session scope exists, then delegates attachment ownership to ui-conversation.
   ctx.effect(() => {
-    const opened = new Set<string>()
-    let busy = false
-    const poll = async (): Promise<void> => {
-      if (busy) return
-      busy = true
-      try {
-        // FX-205.6：插件侧端点自带鉴权（Host 白名单 + 控制令牌 / 上游浏览器会话），
-        // credentials 必须显式声明 same-origin（页面 cookie 是浏览器面的凭据）。
-        const r = await fetch('/api/android/file-incoming', { credentials: 'same-origin', cache: 'no-store' })
-        if (!r.ok) {
-          // 401/403 不再静默：否则「来件投递曾被静默 403」会以「什么都没发生」的形态复现。
-          if (r.status === 401 || r.status === 403) {
-            console.warn('[dsh-mobile] file-incoming unauthorized (HTTP ' + r.status + ')——来件消费已停')
-          }
-          return
-        }
-        const j = (await r.json().catch(() => null)) as { items?: Array<{ sessionId?: string; file?: string }> } | null
-        if (!j?.items) return
-        for (const item of j.items) {
-          if (!item.sessionId || opened.has(item.sessionId)) continue
+    document.documentElement.setAttribute('data-dsh-incoming-draft-consumer', 'active')
+    // Resolve the scoped service faces only at their actual operation. Cordis may install this
+    // extension before a root-scoped Conversation tracker is materialized; eager property reads
+    // would abort the effect and leave the incoming queue unpolled.
+    const sessions = (): IncomingSessionsFace => ctx.sessions as unknown as IncomingSessionsFace
+    const workspaces = (): IncomingWorkspacesFace => ctx.get('workspaces') as IncomingWorkspacesFace
+    const uiWorkspace = (): IncomingUiWorkspaceFace => ctx.get('uiWorkspace') as IncomingUiWorkspaceFace
+    const conversation = (): IncomingConversationFace => ctx.conversation as unknown as IncomingConversationFace
+    const consumer = new IncomingDraftConsumer(
+      (path, init) => fetch(path, init),
+      {
+        refreshSessions: () => sessions().refresh(),
+        createSession: async (cwd) => {
+          document.documentElement.setAttribute('data-dsh-incoming-draft-poll', 'workspace-create')
+          const workspace = await workspaces().create({ path: cwd })
+          document.documentElement.setAttribute('data-dsh-incoming-draft-poll', 'workspace-created')
+          document.documentElement.setAttribute('data-dsh-incoming-draft-poll', 'workspace-connect')
+          const sessionId = await uiWorkspace().connectWorkspace(workspace.workspaceId)
+          document.documentElement.setAttribute('data-dsh-incoming-draft-poll', 'workspace-connected')
+          return String(sessionId)
+        },
+        openSession: (sessionId) => { sessions().open(sessionId) },
+        sessionScope: (sessionId) => sessions().scope(sessionId),
+        attachGenericFile: (sessionId, file) => {
           try {
-            ctx.sessions.open(item.sessionId as never)
-            opened.add(item.sessionId)
-            void fetch('/api/android/file-incoming/claim', {
-              method: 'POST',
-              credentials: 'same-origin',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ file: item.file }),
-            }).catch(() => { /* claim 失败（条目已删/端点缺）不阻断 */ })
+            return conversation().addFiles(sessionId, [file])
           } catch {
-            /* 会话尚未同步进列表：下轮重试 */
+            // The target can be released between session navigation and draft admission.
+            return false
           }
-        }
-      } catch {
-        /* 端点不存在（桌面/非壳宿主）：静默 */
-      } finally {
-        busy = false
-      }
-    }
-    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void poll() }, 4000)
-    const onVisible = (): void => { if (document.visibilityState === 'visible') void poll() }
+        },
+        notify: (scope, text) => {
+          try { conversation().input.for(scope).notify('error', text) } catch { /* target scope ended */ }
+        },
+      },
+    )
+    const poll = (): void => { void consumer.poll() }
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') poll()
+    }, 4000)
+    const onVisible = (): void => { if (document.visibilityState === 'visible') poll() }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
-    void poll()
+    poll()
     return () => {
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onVisible)
+      document.documentElement.removeAttribute('data-dsh-incoming-draft-consumer')
     }
-  }, 'ui-responsive: file-incoming consumer (F5)')
+  }, 'ui-responsive: blank-session external attachment drafts')
 }

@@ -1,6 +1,6 @@
 # dsh-client-ui-responsive
 
-[🌐 中文说明 / 中文 README](README.zh.md)
+[中文说明](README.zh.md)
 
 > **dsh-mobile 生态** · [dsh-mobile-apk](https://github.com/kelai141/dsh-mobile-apk)（壳 APK）· [dsh-shell-termux](https://github.com/kelai141/dsh-shell-termux)（shell）· [dsh-host-web-compat](https://github.com/kelai141/dsh-host-web-compat)（浏览器兼容）· [dsh-mobile](https://github.com/kelai141/dsh-mobile)（协调仓库，private）
 
@@ -21,8 +21,10 @@ The plugin now keeps upstream's frame and adds only what a phone needs.
 | Phone form (<768px) | CSS over the upstream frame: the left sidebar becomes an off-canvas drawer, the centre column spans the frame, the right Sidebar keeps upstream's own fullscreen slide-over (same 768px threshold), touch drag handles step aside |
 | Drawer entry | `shell.overlay` top bar with one toggle (the rail sits off-canvas on a phone, and no control is added to the composer row) |
 | Native "open with" | Session-header action (opens the workspace directory) and an `extension`-band tab type for archives/binaries — both raise the shell's chooser (MT Manager, system files) |
-| Composer | Insets (system bars + IME), narrow-screen control-row cap, popup width/height/shift guard, mobile Enter guard |
-| Shell surfaces | Developer options section, Android general settings row, export-result dialog, external-file delivery consumer, theme bridge, keyboard boundary |
+| Composer | Insets (system bars + IME), narrow-screen control-row cap, popup width/height/shift guard, mobile Enter guard, and an upward paperclip source menu. The menu reuses the existing hidden multiple-file input: “Upload attachment” temporarily selects `*/*`; “Upload image” selects `image/*`; both preserve that filter through WebView's synchronous input-focus event, restore it when SAF settles, and use the upstream draft/upload flow. |
+| Browser and scope | The Files sidebar registers a native BrowserHost workbench beside workspace files. The Developer-options card 「屏幕与 Shizuku 控制」 owns the `virtual-only` / `real-only` / `all` screen-access selector; model tools cannot write it. |
+| External open/share | The consumer opens a blank temporary Session, claims opaque incoming metadata only after its Session scope exists, and adds one unsent generic file attachment through the upstream composer/upload path. It never creates an `@path` message and does not restore the draft after restart. |
+| Shell surfaces | Developer options section, Android general settings rows, export-result dialog, theme bridge, keyboard boundary |
 | Retired with 0.1.5 | The frame fork, the duplicated theme presenter, the injected 「上传图片」/「导出调试日志」 menu items, the image-pick bridge, and the CSS that hid upstream's own attachment buttons |
 
 ## Install and mount

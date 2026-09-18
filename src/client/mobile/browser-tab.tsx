@@ -1,162 +1,448 @@
-/**
- * 侧边栏 AI 浏览器的面板入口（U-1）：与上游「工作区文件」同级的右侧栏 tab 类型。
- *
- * 注册面与 ui-sidebar-files 完全同构：类型进 ctx.sidebarRightTabs（其 guide 条目就是
- * 「文件」面板里的同级卡片），body 进 keyed sidebar.right.pane.tab 座位。
- *
- * 数据面：引擎侧 host 半（plugins/dsh-android-browser）的**只读**路由
- * /api/android/browser/status。档位优先来自壳桥 browserCaps；op 未实现时回落 env/实测基线，
- * 并在 factsSource / capsNote 里如实标注（页面不得把它显示成"已实测"）。
- *
- * 跨包命名镜像：kind 与路由在本文件按 plugins/dsh-android-browser/src/contract.ts 的值镜像
- * （该插件是权威契约源；改名必须同批，否则面板打不开）。
- */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { FormEvent } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SidebarRightTabDefinition } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import type {} from '../android-bridge.ts'
+import css from './BrowserTab.module.css'
 
-/** 与 contract.ts 的 BROWSER_TAB_ID/BROWSER_TAB_KIND 对齐（openTab 用 kind）。 */
+/** 与 host 侧 Files sidebar tab 契约一致。 */
 export const BROWSER_TAB_ID = 'android-browser'
 export const BROWSER_TAB_KIND = 'android-browser'
-/** 与 contract.ts 的 BROWSER_ROUTES.status 对齐。 */
-export const BROWSER_STATUS_ROUTE = '/api/android/browser/status'
-
-interface ViewportPreset { id: string; label: string; width: number; height: number; mobile: boolean }
-interface IdentityProfile { id: string; label: string; requiresConfirm: boolean }
-
-/** host 半状态路由的载荷（字段来自 plugins/dsh-android-browser/src/contract.ts）。 */
-export interface BrowserStatus {
-  ok: boolean
-  available: boolean
-  tier: string
-  viewportRoute: string
-  identityRoute: string
-  factsSource: string
-  capsNote?: string
-  webviewMajor?: number
-  densityDpi?: number
-  uaChAvailable?: boolean
-  androidxWebkitAvailable?: boolean
-  densityOverrideSupported?: boolean
-  browserWebViewAvailable?: boolean
-  cdpEnabled?: boolean
-  reasons?: string[]
-  degradedNotes?: string[]
-  viewportPresets?: ViewportPreset[]
-  identityProfiles?: IdentityProfile[]
-}
 
 /**
- * 浏览器 tab 类型定义。
- * @returns 注册进 ctx.sidebarRightTabs 的定义（guide 条目 = 「文件」面板的同级卡片）。
+ * 0.14.0 极简面板：顶部地址栏 + 单按钮（打开 / 刷新），底部分辨率输入 + PC/手机切换。
+ * 除此之外不渲染任何元素与文字；页面级失败由壳侧错误页承担，内核类缺陷只进 logcat。
  */
+interface BrowserHostStatus {
+  ok: boolean
+  available: boolean
+  created: boolean
+  visible: boolean
+  url: string
+  title: string
+  pageGeneration: number
+  viewportId: string
+  viewportWidth: number
+  viewportHeight: number
+  identityId: string
+  ownerSessionId: string
+  atTop: boolean
+  scrollDirection: number
+  reason: string
+}
+
+const unavailable: BrowserHostStatus = {
+  ok: false,
+  available: false,
+  created: false,
+  visible: false,
+  url: 'about:blank',
+  title: '',
+  pageGeneration: 0,
+  viewportId: 'device',
+  viewportWidth: 0,
+  viewportHeight: 0,
+  identityId: 'android-real',
+  ownerSessionId: '',
+  atTop: true,
+  scrollDirection: 0,
+  reason: 'browser-host-not-wired',
+}
+
+/** PC 身份档（与契约的 linux-desktop 同 UA；只换 UA 串，未编入 UA-CH）。 */
+const DESKTOP_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
+const MODE_DEFAULTS = { desktop: '1280x720', mobile: '390x844' } as const
+const MODE_STORAGE = 'dsh-browser-resolution'
+
+function parseStatus(raw: string | undefined): BrowserHostStatus {
+  if (!raw) return unavailable
+  try {
+    const value = JSON.parse(raw) as Partial<BrowserHostStatus>
+    return {
+      ok: value.ok === true,
+      available: value.available === true,
+      created: value.created === true,
+      visible: value.visible === true,
+      url: typeof value.url === 'string' ? value.url : 'about:blank',
+      title: typeof value.title === 'string' ? value.title : '',
+      pageGeneration: typeof value.pageGeneration === 'number' ? value.pageGeneration : 0,
+      viewportId: typeof value.viewportId === 'string' ? value.viewportId : 'device',
+      viewportWidth: typeof value.viewportWidth === 'number' ? value.viewportWidth : 0,
+      viewportHeight: typeof value.viewportHeight === 'number' ? value.viewportHeight : 0,
+      identityId: typeof value.identityId === 'string' ? value.identityId : 'android-real',
+      ownerSessionId: typeof value.ownerSessionId === 'string' ? value.ownerSessionId : '',
+      atTop: value.atTop !== false,
+      scrollDirection: typeof value.scrollDirection === 'number' ? value.scrollDirection : 0,
+      reason: typeof value.reason === 'string' ? value.reason : '',
+    }
+  } catch {
+    return unavailable
+  }
+}
+
+/** 解析 "宽 x 高"（接受 x / × / * 与空白）；范围与壳侧一致（240..4096）。 */
+function parseResolution(text: string): { width: number; height: number } | undefined {
+  const match = /^\s*(\d{2,4})\s*[x×*]\s*(\d{2,4})\s*$/i.exec(text)
+  if (match === null) return undefined
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (width < 240 || width > 4096 || height < 240 || height > 4096) return undefined
+  return { width, height }
+}
+
+function formatResolution(width: number, height: number): string {
+  return width + 'x' + height
+}
+
+function rememberedResolution(desktop: boolean): string {
+  try {
+    const stored = window.localStorage?.getItem(MODE_STORAGE)
+    if (stored !== null && stored !== undefined) {
+      const parsed = JSON.parse(stored) as Record<string, unknown>
+      const value = parsed[desktop ? 'desktop' : 'mobile']
+      if (typeof value === 'string' && parseResolution(value) !== undefined) return value
+    }
+  } catch {
+    /* storage unavailable */
+  }
+  return desktop ? MODE_DEFAULTS.desktop : MODE_DEFAULTS.mobile
+}
+
+function rememberResolution(desktop: boolean, value: string): void {
+  try {
+    const stored = window.localStorage?.getItem(MODE_STORAGE)
+    const parsed = stored !== null && stored !== undefined ? (JSON.parse(stored) as Record<string, unknown>) : {}
+    parsed[desktop ? 'desktop' : 'mobile'] = value
+    window.localStorage?.setItem(MODE_STORAGE, JSON.stringify(parsed))
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function normalizeAddress(value: string): string {
+  return value.trim().replace(/\/+$/, '')
+}
+
+/** Browser tab type definition; its guide card belongs beside workspace files. */
+/**
+ * 事件驱动的可见性下发（与 vdisplay 面板同一修复，两份实现刻意保持同形）。
+ *
+ * 缺陷形态（用户 2026-09-17 实报，浏览器与虚拟屏两侧同源）：侧栏收起 / 切标签页后，
+ * 原生覆盖层**还要挡一下、延迟一下**才消失。
+ *
+ * 真因：收起与切页**不改舞台几何**（上游只隐藏面板，组件在 DOM 里保活），
+ * `ResizeObserver` / `window.resize` 都不触发；旧实现只有 300ms 轮询兜底，
+ * 于是覆盖层的消失最多晚一拍——用户看到的就是那一下延迟。
+ *
+ * 要「即时」就必须观察**状态本身的变化事件源**：DOM 结构/属性变化（收起控件增删、
+ * 面板 open 属性摘除、style/class 改写）+ 页面可见性。rAF 合帧把高频回调收敛为每帧一次。
+ * @param publish - 可见性下发函数（幂等）。
+ * @returns 解绑函数。
+ */
+function watchStageVisibility(publish: () => void): () => void {
+  let queued = 0
+  const schedule = () => {
+    if (queued !== 0) return
+    queued = window.requestAnimationFrame(() => { queued = 0; publish() })
+  }
+  const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(schedule)
+  try {
+    observer?.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'class', 'hidden', 'data-sidebar-right-open', 'data-sidebar-right-collapsed'],
+    })
+  } catch {
+    /* document.body 尚未就绪：轮询兜底仍然在 */
+  }
+  document.addEventListener('visibilitychange', schedule)
+  return () => {
+    if (queued !== 0) window.cancelAnimationFrame(queued)
+    queued = 0
+    observer?.disconnect()
+    document.removeEventListener('visibilitychange', schedule)
+  }
+}
+
 export function browserTabDefinition(): SidebarRightTabDefinition {
   return {
     id: BROWSER_TAB_ID,
     kind: BROWSER_TAB_KIND,
     priority: 'extension',
     title: () => 'AI 浏览器',
-    guide: [
-      {
-        // 工作区文件（ui-sidebar-files）用 order 10；同级卡片排在它后面。
-        order: 20,
-        title: () => 'AI 浏览器',
-        description: () => '在右侧栏打开 AI 专用浏览器工作台（档位 / 视口 / 身份）',
-      },
-    ],
+    guide: [{
+      order: 20,
+      title: () => 'AI 浏览器',
+      description: () => '在右侧栏打开一个独立、隔离的浏览器工作台。',
+    }],
   }
 }
 
 /**
- * 面板本体：档位 + 视口/身份档位骨架 + 页面区占位。
- * @param props - 组合槽位属性（本组件不读 owner 分享）。
- * @returns 面板元素树。
+ * Browser workbench chrome. The page surface is a native second WebView positioned over `stage`;
+ * this component owns only DSH-native controls and never embeds a third-party page itself.
  */
-export function BrowserTab(_props: PropsRuntime<'sidebar.right.pane.tab'>) {
-  const [status, setStatus] = useState<BrowserStatus | null>(null)
-  const [note, setNote] = useState<string | null>(null)
+export function BrowserTab({ sessionId, useTabInfo }: PropsRuntime<'sidebar.right.pane.tab'>) {
+  const sessionKey = typeof sessionId === 'string' ? sessionId : String(sessionId ?? '')
+  const tabInfo = useTabInfo()
+  const stageRef = useRef<HTMLDivElement>(null)
+  const occupiedRef = useRef(false)
+  const [status, setStatus] = useState<BrowserHostStatus>(unavailable)
+  const [address, setAddress] = useState('')
+  const [resolution, setResolution] = useState('')
+  const [desktop, setDesktop] = useState(false)
+  const [edited, setEdited] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(() => {
     try {
-      const r = await fetch(BROWSER_STATUS_ROUTE, { credentials: 'same-origin', cache: 'no-store' })
-      if (r.status === 401 || r.status === 403) {
-        setNote('未获授权（HTTP ' + r.status + '）——浏览器档位不可读')
-        return
-      }
-      if (!r.ok) {
-        setNote('档位接口不可用（HTTP ' + r.status + '）')
-        return
-      }
-      const json = (await r.json().catch(() => null)) as BrowserStatus | null
-      if (json === null || json.ok !== true) {
-        setNote('档位接口返回异常')
-        return
-      }
-      setStatus(json)
-      setNote(null)
+      setStatus(parseStatus(window.androidBridge?.browserHostStatus?.()))
     } catch {
-      setNote('浏览器面板不可用（host 半未挂载或引擎未就绪）')
+      setStatus(unavailable)
     }
   }, [])
 
-  useEffect(() => {
-    void refresh()
-    const onVisible = (): void => { if (document.visibilityState === 'visible') void refresh() }
-    document.addEventListener('visibilitychange', onVisible)
-    window.addEventListener('focus', onVisible)
-    return () => {
-      document.removeEventListener('visibilitychange', onVisible)
-      window.removeEventListener('focus', onVisible)
+  const publishBounds = useCallback(() => {
+    const stage = stageRef.current
+    if (stage === null) return
+    const rect = stage.getBoundingClientRect()
+    const style = getComputedStyle(stage)
+    const panel = stage.closest('[data-sidebar-right-panel]')
+    // 可见性判据（0.14.0 设备实证四次修正——三版都错在「拿静态属性当状态」，别再简化）：
+    //  1) `data-sidebar-right-open` 收起态**仍是 "true"**、舞台仍有布局矩形 → 只看它恒判可见
+    //     （原生覆盖层留在聊天上方）。
+    //  2) `[data-rightbar-col]` 上**没有** collapsed 属性，它在祖先 frame 上。
+    //  3) `data-rightbar-collapsed` 是**常量**：实测在展开/收起/全屏三种状态下**恒为 "true"**，
+    //     它不是状态量。用它当判据 → 恒判「已收起」→ 页面几乎永远不可见。**这是最深的陷阱**：
+    //     第一版「修好」缺陷 A 其实只是把页面永久隐藏了（假修）。
+    //  4) 权威状态信号 = **展开控件是否在场**。上游 `ExpandButton` 源码注释原文：
+    //     「The expand control while the panel is collapsed; nothing while it is shown」——
+    //     即 `[data-sidebar-right-expand]` **只在收起时渲染**。设备实测三态吻合：
+    //     收起→在场、展开→不在场、全屏→不在场。
+    const collapsed = document.querySelector('[data-sidebar-right-expand]') !== null
+    const panelOpen = panel !== null && panel.getAttribute('data-sidebar-right-open') !== null
+    const visible = !occupiedRef.current && !collapsed && panelOpen &&
+      rect.width > 1 && rect.height > 1 &&
+      style.display !== 'none' && style.visibility !== 'hidden'
+    try {
+      window.androidBridge?.browserHostBounds?.(JSON.stringify({
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        visible,
+        session: sessionKey,
+      }))
+    } catch {
+      /* desktop/old shell: status remains explicitly unavailable */
     }
-  }, [refresh])
+  }, [sessionKey])
 
-  const degraded = status?.degradedNotes ?? []
+  useEffect(() => {
+    refresh()
+    publishBounds()
+    // 切回本面板时，若页面仍在（壳侧保活）就重新置为可见——否则会表现为「切走即卸载」。
+    // 非归属会话不在此列（占用态由渲染层处理，原生层 foreignViewer 亦 fail-closed）。
+    try {
+      const current = parseStatus(window.androidBridge?.browserHostStatus?.())
+      const foreign = current.ownerSessionId !== '' && sessionKey !== '' && current.ownerSessionId !== sessionKey
+      // 只在「面板确实展开着 + 页面在但被隐藏」时重申可见性（切走再切回）。
+      // 收起态绝不重申：用户刚收起来，再 show 一次就是抢控制权（设备实测的「自动展开」）。
+      // 收起判据同 publishBounds：以上游「展开控件在场」为准（data-rightbar-collapsed 是常量，不可用）。
+      const collapsedNow = document.querySelector('[data-sidebar-right-expand]') !== null
+      if (current.created && !current.visible && !foreign && !collapsedNow) window.androidBridge?.browserHostShow?.()
+    } catch {
+      /* shell unavailable */
+    }
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(publishBounds)
+    if (stageRef.current !== null) observer?.observe(stageRef.current)
+    window.addEventListener('resize', publishBounds)
+    // 侧栏收起/展开若只改可见性而不改舞台尺寸，ResizeObserver 不触发 → 原生覆盖层会留在
+    // 聊天上方。事件通道（收起控件增删、面板 open 属性摘除、style/class 改写）负责**即时**
+    // 隐藏；下面的轮询降为兜底对齐（原生层重建、事件漏网时用）。
+    // 用户实报「收起后还要挡一下才消失」= 旧实现只靠这一拍轮询的必然结果。
+    const unwatch = watchStageVisibility(publishBounds)
+    const timer = window.setInterval(() => { refresh(); publishBounds() }, 300)
+    return () => {
+      unwatch()
+      observer?.disconnect()
+      window.clearInterval(timer)
+      window.removeEventListener('resize', publishBounds)
+      try { window.androidBridge?.browserHostHide?.() } catch { /* host already gone */ }
+    }
+  }, [publishBounds, refresh, sessionKey])
+
+  // 保活（SPEC §1.4）：切走标签只是卸载组件 → 只隐藏；标签记录消失（关标签 / 会话被删除）
+  // 也不销毁页面，与正常浏览器一致地保活（销毁仅发生在 Activity 销毁或模型显式 browserClose）。
+  useEffect(() => {
+    const signal = tabInfo.tab.signal
+    const onAbort = () => {
+      try { window.androidBridge?.browserHostHide?.() } catch { /* host already gone */ }
+    }
+    signal.addEventListener('abort', onAbort)
+    return () => signal.removeEventListener('abort', onAbort)
+  }, [tabInfo.tab.signal])
+
+  // 地址栏回填：用户未编辑时跟随当前页 URL。
+  useEffect(() => {
+    if (edited) return
+    setAddress(status.created && status.url !== 'about:blank' ? status.url : '')
+  }, [edited, status.created, status.url])
+
+  // 身份档首次同步：壳侧已是桌面档时切到 PC 态（只做一次，不覆盖用户操作）。
+  const identitySynced = useRef(false)
+  useEffect(() => {
+    if (identitySynced.current || !status.available) return
+    identitySynced.current = true
+    if (status.identityId !== 'android-real') setDesktop(true)
+  }, [status.available, status.identityId])
+
+  // 分辨率输入按模式回填（本地记忆）；不随状态轮询抖动。
+  useEffect(() => {
+    setResolution(rememberedResolution(desktop))
+  }, [desktop])
+
+  // 竖屏滚动避让：页面前进（内容上滑）收起控件、回看带回、到顶必现；横屏锁定常驻。
+  const landscape = status.viewportWidth > 0 && status.viewportWidth > status.viewportHeight
+  useEffect(() => {
+    if (!status.created || landscape) {
+      setCollapsed(false)
+      return () => {}
+    }
+    const timer = window.setInterval(() => {
+      try {
+        const next = parseStatus(window.androidBridge?.browserHostStatus?.())
+        if (next.atTop || next.scrollDirection <= 0) setCollapsed(false)
+        else setCollapsed(true)
+      } catch {
+        /* keep the last chrome state */
+      }
+    }, 200)
+    return () => window.clearInterval(timer)
+  }, [landscape, status.created])
+
+  // 控件收起 / 展开改变工位矩形：重新上报原生 bounds。
+  useEffect(() => { publishBounds() }, [collapsed, publishBounds])
+
+  const applyResolution = useCallback((value: string, mode: boolean) => {
+    const parsed = parseResolution(value)
+    if (parsed === undefined) return
+    const formatted = formatResolution(parsed.width, parsed.height)
+    try {
+      setStatus(parseStatus(window.androidBridge?.browserHostViewport?.(
+        JSON.stringify({ id: 'custom', width: parsed.width, height: parsed.height, route: 'S2' }),
+      )))
+      rememberResolution(mode, formatted)
+    } catch {
+      /* shell unavailable */
+    }
+    publishBounds()
+  }, [publishBounds])
+
+  const open = useCallback((event?: FormEvent) => {
+    event?.preventDefault()
+    const target = address.trim()
+    const pageOpen = status.created && status.url !== 'about:blank' && status.url !== ''
+    const sameAsPage = pageOpen && normalizeAddress(address) === normalizeAddress(status.url)
+    try {
+      if (sameAsPage) {
+        setStatus(parseStatus(window.androidBridge?.browserHostReload?.()))
+      } else if (target !== '') {
+        setStatus(parseStatus(window.androidBridge?.browserHostShow?.(
+          JSON.stringify({ url: target, session: sessionKey }),
+        )))
+        setEdited(false)
+      }
+    } catch {
+      /* shell unavailable: no text is rendered by design */
+    }
+    publishBounds()
+  }, [address, publishBounds, sessionKey, status.created, status.url])
+
+  const toggleMode = useCallback(() => {
+    const nextMode = !desktop
+    const value = rememberedResolution(nextMode)
+    const parsed = parseResolution(value)
+    setDesktop(nextMode)
+    setResolution(value)
+    try {
+      // 身份 + 该模式记忆分辨率合并为一次调用 → 壳侧只重载一次（SPEC §1.2）。
+      setStatus(parseStatus(window.androidBridge?.browserHostIdentity?.(JSON.stringify({
+        profile: nextMode ? 'linux-desktop' : 'android-real',
+        ua: nextMode ? DESKTOP_UA : '',
+        preset: 'custom',
+        width: parsed?.width ?? 0,
+        height: parsed?.height ?? 0,
+        route: 'S2',
+        session: sessionKey,
+      }))))
+    } catch {
+      /* shell unavailable */
+    }
+    publishBounds()
+  }, [desktop, publishBounds, sessionKey])
+
+  const submitResolution = useCallback((event?: FormEvent) => {
+    event?.preventDefault()
+    applyResolution(resolution, desktop)
+  }, [applyResolution, desktop, resolution])
+
+  const pageOpen = status.created && status.url !== 'about:blank' && status.url !== ''
+  const sameAsPage = pageOpen && normalizeAddress(address) === normalizeAddress(status.url)
+  const buttonLabel = sameAsPage ? '刷新' : '打开'
+  // ── 跨会话占用态已移除（0.14.0 用户口径：按会话隔离、互不占用） ──────────────────
+  //
+  // 原实现在「壳侧归属 ≠ 本面板会话」时把整个面板替换成「由会话 X 使用中」。那套模型的前提是
+  // 工作台全局单实例 + 单向归属锁，于是切到别的对话什么也看不到、且**只有原会话能解锁**
+  // （原会话被删则永久锁死）。现在壳侧改为每个会话各自一个 Workspace：
+  //   - 本面板的会话就是当前工作台（bounds 下推时已切换过去），`ownerSessionId` 恒等于本会话；
+  //   - 别的会话的页面由原生层置为 GONE，根本不会出现"看到别人的页面"，也无需占用提示。
+  // 因此 `occupiedRef` 恒为 false；保留该 ref 只为 publishBounds 的既有签名稳定。
+  useEffect(() => {
+    occupiedRef.current = false
+    publishBounds()
+  }, [publishBounds])
 
   return (
-    <div
-      data-plugin="android-browser"
-      style={{ height: '100%', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px', boxSizing: 'border-box' }}
-    >
-      {note !== null && <p data-testid="browser-note" style={{ margin: 0 }}>{note}</p>}
-      {status !== null && (
-        <>
-          <p data-testid="browser-tier" style={{ margin: 0 }}>
-            {'档位 ' + status.tier + ' · 视口 ' + status.viewportRoute + ' · 身份 ' + status.identityRoute}
-          </p>
-          <p data-testid="browser-source" style={{ margin: 0, opacity: 0.75 }}>
-            {'事实来源 ' + status.factsSource + (status.capsNote === undefined ? '' : '（' + status.capsNote + '）')}
-          </p>
-          <label style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <span>视口档位</span>
-            <select data-testid="browser-viewport" disabled defaultValue="phone-portrait">
-              {(status.viewportPresets ?? []).map((p) => (
-                <option key={p.id} value={p.id}>{p.label + ' ' + String(p.width) + 'x' + String(p.height)}</option>
-              ))}
-            </select>
-          </label>
-          <label style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <span>身份档位</span>
-            <select data-testid="browser-identity" disabled defaultValue="android-real">
-              {(status.identityProfiles ?? []).map((p) => (
-                <option key={p.id} value={p.id}>{p.label + (p.requiresConfirm ? '（需二次确认）' : '')}</option>
-              ))}
-            </select>
-          </label>
-          <div
-            data-testid="browser-stage"
-            style={{ flex: 1, minHeight: 0, border: '1px dashed currentColor', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px', textAlign: 'center', opacity: 0.85 }}
-          >
-            {status.browserWebViewAvailable
-              ? '浏览器画面将在此显示（壳侧 host 已就绪）'
-              : '壳侧 BrowserHost 未接入：等待 MainActivity 窗口释放后启用有头浏览面'}
-          </div>
-          {degraded.length > 0 && (
-            <ul data-testid="browser-degraded" style={{ margin: 0, paddingLeft: '18px', opacity: 0.8 }}>
-              {degraded.map((n) => <li key={n}>{n}</li>)}
-            </ul>
-          )}
-        </>
-      )}
-    </div>
+    <section className={css.root} data-plugin="android-browser">
+      <form className={css.bar + ' ' + css.barTop + (collapsed ? ' ' + css.barCollapsed : '')} onSubmit={open}>
+        <input
+          aria-label="浏览器地址"
+          className={css.input}
+          value={address}
+          inputMode="url"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder="https://example.com"
+          disabled={!status.available}
+          onChange={(event) => { setEdited(true); setAddress(event.target.value) }}
+        />
+        <button type="submit" className={css.primary} disabled={!status.available}>{buttonLabel}</button>
+      </form>
+
+      <div ref={stageRef} className={css.stage} data-testid="browser-stage" />
+
+      <form className={css.bar + ' ' + css.barBottom + (collapsed ? ' ' + css.barCollapsed : '')} onSubmit={submitResolution}>
+        <input
+          aria-label="分辨率"
+          className={css.input}
+          value={resolution}
+          inputMode="numeric"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder={desktop ? MODE_DEFAULTS.desktop : MODE_DEFAULTS.mobile}
+          disabled={!status.available}
+          onChange={(event) => setResolution(event.target.value)}
+        />
+        <button type="button" className={css.mode} aria-pressed={desktop} onClick={toggleMode} disabled={!status.available}>
+          {desktop ? 'PC 网页' : '手机网页'}
+        </button>
+      </form>
+    </section>
   )
 }
