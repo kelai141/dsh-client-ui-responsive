@@ -80,8 +80,6 @@ export interface AndroidShellBridge {
   vdisplayStatus?: () => string
   vdisplayCreate?: () => string
   vdisplayDestroy?: () => string
-  vdisplayLaunchSettingsProbe?: () => string
-  vdisplayBackProbe?: () => string
   vdisplayBounds?: (bounds: string) => string
   /** Select the controller-owned presentation target (only owned virtual aliases are selectable). */
   vdisplaySelect?: (alias: string) => string

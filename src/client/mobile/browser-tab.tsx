@@ -124,6 +124,47 @@ function normalizeAddress(value: string): string {
 }
 
 /** Browser tab type definition; its guide card belongs beside workspace files. */
+/**
+ * 事件驱动的可见性下发（与 vdisplay 面板同一修复，两份实现刻意保持同形）。
+ *
+ * 缺陷形态（用户 2026-09-17 实报，浏览器与虚拟屏两侧同源）：侧栏收起 / 切标签页后，
+ * 原生覆盖层**还要挡一下、延迟一下**才消失。
+ *
+ * 真因：收起与切页**不改舞台几何**（上游只隐藏面板，组件在 DOM 里保活），
+ * `ResizeObserver` / `window.resize` 都不触发；旧实现只有 300ms 轮询兜底，
+ * 于是覆盖层的消失最多晚一拍——用户看到的就是那一下延迟。
+ *
+ * 要「即时」就必须观察**状态本身的变化事件源**：DOM 结构/属性变化（收起控件增删、
+ * 面板 open 属性摘除、style/class 改写）+ 页面可见性。rAF 合帧把高频回调收敛为每帧一次。
+ * @param publish - 可见性下发函数（幂等）。
+ * @returns 解绑函数。
+ */
+function watchStageVisibility(publish: () => void): () => void {
+  let queued = 0
+  const schedule = () => {
+    if (queued !== 0) return
+    queued = window.requestAnimationFrame(() => { queued = 0; publish() })
+  }
+  const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(schedule)
+  try {
+    observer?.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'class', 'hidden', 'data-sidebar-right-open', 'data-sidebar-right-collapsed'],
+    })
+  } catch {
+    /* document.body 尚未就绪：轮询兜底仍然在 */
+  }
+  document.addEventListener('visibilitychange', schedule)
+  return () => {
+    if (queued !== 0) window.cancelAnimationFrame(queued)
+    queued = 0
+    observer?.disconnect()
+    document.removeEventListener('visibilitychange', schedule)
+  }
+}
+
 export function browserTabDefinition(): SidebarRightTabDefinition {
   return {
     id: BROWSER_TAB_ID,
@@ -220,9 +261,13 @@ export function BrowserTab({ sessionId, useTabInfo }: PropsRuntime<'sidebar.righ
     if (stageRef.current !== null) observer?.observe(stageRef.current)
     window.addEventListener('resize', publishBounds)
     // 侧栏收起/展开若只改可见性而不改舞台尺寸，ResizeObserver 不触发 → 原生覆盖层会留在
-    // 聊天上方。轮询同批下发 refresh + bounds，保证覆盖层随面板收起/展开即时隐藏/恢复。
+    // 聊天上方。事件通道（收起控件增删、面板 open 属性摘除、style/class 改写）负责**即时**
+    // 隐藏；下面的轮询降为兜底对齐（原生层重建、事件漏网时用）。
+    // 用户实报「收起后还要挡一下才消失」= 旧实现只靠这一拍轮询的必然结果。
+    const unwatch = watchStageVisibility(publishBounds)
     const timer = window.setInterval(() => { refresh(); publishBounds() }, 300)
     return () => {
+      unwatch()
       observer?.disconnect()
       window.clearInterval(timer)
       window.removeEventListener('resize', publishBounds)

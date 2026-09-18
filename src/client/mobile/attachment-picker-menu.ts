@@ -24,15 +24,51 @@ function copyForDocument(): PickerCopy {
     : { file: 'Upload attachment', image: 'Upload image' }
 }
 
+/**
+ * The button that immediately precedes `input` inside its own row — i.e. the paperclip the upstream
+ * InputBar wired to that input.
+ *
+ * Why document order rather than `previousElementSibling`: the Tooltip primitive injects its bubble
+ * `<span role="tooltip">` between the paperclip and the input, so "previous element" is the bubble,
+ * not the button. Scanning for the nearest preceding BUTTON skips every injected span.
+ */
+/**
+ * The button that immediately precedes `input` inside its own row — i.e. the paperclip the upstream
+ * InputBar wired to that input.
+ *
+ * Why document order rather than `previousElementSibling`: the Tooltip primitive injects its bubble
+ * `<span role="tooltip">` between the paperclip and the input, so "previous element" is the bubble,
+ * not the button. Scanning for the nearest preceding BUTTON skips every injected span.
+ */
+function ownerButtonFor(input: HTMLInputElement): HTMLButtonElement | null {
+  const siblings = input.parentElement?.children
+  if (siblings === undefined) return null
+  let candidate: HTMLButtonElement | null = null
+  for (const child of Array.from(siblings)) {
+    if (child === input) break
+    if (child instanceof HTMLButtonElement) candidate = child
+  }
+  return candidate
+}
+
+/**
+ * Resolve the paperclip/input pair structurally, not by sibling adjacency.
+ *
+ * Regression evidence (emulator CDP, 2026-09-18): the Tooltip bubble lands between the paperclip and
+ * the input as soon as the pointer hovers, so a `nextElementSibling` lookup silently returns null.
+ * The enhancer then never claimed the click, the event bubbled to the upstream button, and the raw
+ * picker opened directly — the user-visible "tap the paperclip twice" defect. Sibling order is not
+ * part of the upstream contract; "this row owns one hidden multiple-file input, and this button is
+ * the one wired to it" is.
+ */
 function paperclipInput(button: HTMLButtonElement): HTMLInputElement | null {
-  const direct = button.nextElementSibling
-  if (direct instanceof HTMLInputElement && direct.type === 'file' && direct.multiple) return direct
-  // Tooltip normally clones its anchor without a wrapper. Keep a narrow wrapper fallback for older
-  // renderers without accidentally claiming the neighbouring command-plus button.
-  const wrapperNext = button.parentElement?.nextElementSibling
-  return wrapperNext instanceof HTMLInputElement && wrapperNext.type === 'file' && wrapperNext.multiple
-    ? wrapperNext
-    : null
+  const rowInput = button.parentElement?.querySelector<HTMLInputElement>('input[type="file"][multiple]') ?? null
+  if (rowInput !== null && ownerButtonFor(rowInput) === button) return rowInput
+  // Older renders wrapped the button; fall back to the enclosing card, still requiring that the
+  // input actually belongs to this button so the neighbouring command-plus is never claimed.
+  const card = button.closest('[data-composer-card]')
+  const cardInput = card?.querySelector<HTMLInputElement>('input[type="file"][multiple]') ?? null
+  return cardInput !== null && ownerButtonFor(cardInput) === button ? cardInput : null
 }
 
 function pickerTrigger(target: EventTarget | null): HTMLButtonElement | null {

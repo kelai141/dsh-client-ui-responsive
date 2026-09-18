@@ -118,4 +118,51 @@ describe('AttachmentPickerMenuEnhancer', () => {
     expect(document.querySelector('[data-dsh-attachment-picker-menu]')?.textContent).toContain('Upload attachment')
     expect(document.querySelector('[data-dsh-attachment-picker-menu]')?.textContent).toContain('Upload image')
   })
+
+  // Regression (emulator CDP, 2026-09-18): the upstream Tooltip primitive injects its bubble
+  // <span role="tooltip"> directly between the paperclip and the hidden file input as soon as the
+  // pointer hovers. A sibling-adjacency lookup returned null, the enhancer never claimed the click,
+  // and the raw picker opened straight from the upstream button — the "tap twice" defect. The
+  // enhancer must resolve the pair structurally so injected nodes cannot break it.
+  it('claims the click even when a tooltip bubble sits between the paperclip and the input', () => {
+    const bubble = document.createElement('span')
+    bubble.setAttribute('role', 'tooltip')
+    bubble.textContent = '添加附件'
+    paperclip.after(bubble)
+    const upstream = vi.fn()
+    paperclip.addEventListener('click', upstream)
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true })
+    paperclip.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(upstream).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-dsh-attachment-picker-menu]')).not.toBeNull()
+  })
+
+  it('still routes a chosen file to the input when the tooltip bubble is present', () => {
+    const bubble = document.createElement('span')
+    bubble.setAttribute('role', 'tooltip')
+    bubble.textContent = '添加附件'
+    paperclip.after(bubble)
+    const click = vi.spyOn(input, 'click').mockImplementation(() => {})
+
+    paperclip.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    document.querySelector<HTMLElement>('[data-dsh-attachment-picker-item="image"]')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+
+    expect(click).toHaveBeenCalledTimes(1)
+    expect(input.getAttribute('accept')).toBe('image/*')
+  })
+
+  it('never claims the neighbouring command-plus button', () => {
+    // The plus button sits before the paperclip in the same row and does not own the file input.
+    const plusButton = paperclip.previousElementSibling as HTMLButtonElement
+    const upstream = vi.fn()
+    plusButton.addEventListener('click', upstream)
+    plusButton.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    expect(upstream).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('[data-dsh-attachment-picker-menu]')).toBeNull()
+  })
 })
+
