@@ -163,6 +163,16 @@ describe('DevSection（开发者选项设置页）', () => {
     expect(overlayToggle(el).checked).toBe(false)
   })
 
+  // P5-6：与「手机控制」页的虚拟屏浮窗去混淆。两处都叫「浮」，必须各说各是什么，
+  // 且其中一处点名另一处（本页点名「虚拟屏浮窗」）。
+  it('P5-6：悬浮球文案必须点名「虚拟屏浮窗」以示区分', async () => {
+    const el = await render({})
+    const text = el.textContent ?? ''
+    expect(text).toContain('悬浮球')
+    expect(text, '必须点名「手机控制」页的虚拟屏浮窗是另一个东西').toContain('虚拟屏浮窗')
+    expect(text, '必须说清悬浮球是什么').toContain('任务面板')
+  })
+
   it('ST-02：系统侧撤销权限后回前台不重挂载也收敛（展示值与桥回值同时收敛）', async () => {
     const state = { overlay: true }
     const el = await render({ getOverlayEnabled: () => state.overlay, setOverlayEnabled: () => state.overlay })

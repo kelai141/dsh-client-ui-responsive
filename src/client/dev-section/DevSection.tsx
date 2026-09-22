@@ -276,15 +276,21 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         <span>开发者调试日志</span>
       </label>
 
-      {/* 0.13.2 W7：悬浮球（实时工具流 + 停止） */}
+      {/* 0.13.2 W7：悬浮球（实时工具流 + 停止）。
+          P5-6：与「手机控制」页的虚拟屏浮窗去混淆——旧文案两处都只说「浮窗/浮球」，
+          用户分不清哪个是任务面板入口、哪个是虚拟屏画面。此处点名各自是什么。 */}
       <label className="dsh-dev-row dsh-dev-switch">
         <input
           type="checkbox"
           checked={overlayOn}
           onChange={(e) => toggleOverlay(e.target.checked)}
         />
-        <span>悬浮球（实时查看 AI 工作，可一键停止）</span>
+        <span>悬浮球（任意界面可见的任务面板入口）</span>
       </label>
+      <p className="dsh-dev-hint">
+        屏幕上的圆球：点开可看实时工具调用、可一键停止。与「手机控制」页的「虚拟屏浮窗」
+        （退后台显示虚拟屏画面）是两个不同的东西。
+      </p>
       {overlayMsg !== null && <p className="dsh-dev-hint">{overlayMsg}</p>}
 
       {/* 0.13.1 W4：配置导入/导出（安全手改通道；引擎读私有目录，改共享目录副本无效） */}

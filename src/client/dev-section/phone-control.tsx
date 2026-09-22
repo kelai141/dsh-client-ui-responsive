@@ -375,6 +375,13 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
   const forceLabel = confirmStage === 0
     ? '强制销毁虚拟屏'
     : '再次点击确认（' + confirmStage + '/3）'
+  // P5-5：进入确认态后必须给**取消途径**。旧实现没有任何退出通道——误点一下就只能
+  // 「再点两下把它执行掉」或者等 4 秒超时（超时不可见，用户并不知道自己还能等）。
+  const forceArmed = confirmStage > 0
+  const cancelForce = useCallback(() => {
+    setConfirmStage(0)
+    setForceMsg(null)
+  }, [])
 
   // 「打开 Shizuku」的可点条件：只有**确知已安装**才可点（读不到状态时按未安装处理）。
   const canOpenShizuku = shizuku.readable && shizuku.installed
@@ -460,11 +467,13 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
 
       <label className="dsh-screen-scope-row">
         <span>
-          <strong>退后台自动浮窗</strong>
-          <small>只读浮窗：应用切到后台时显示虚拟屏画面；前台只在侧栏可见。</small>
+          <strong>虚拟屏浮窗（退后台自动显示）</strong>
+          {/* P5-6：与开发者选项里的「悬浮球」去混淆。两者都叫「浮」，但一个是**虚拟屏只读画面**，
+              一个是**任务面板入口**——旧文案各说各的，用户在两页之间对不上号。 */}
+          <small>只读浮窗：应用切到后台时显示虚拟屏画面；前台只在侧栏可见。与开发者选项里的「悬浮球」不是同一个东西（那个是任务面板入口）。</small>
         </span>
         <input
-          aria-label="退后台自动浮窗"
+          aria-label="虚拟屏浮窗（退后台自动显示）"
           type="checkbox"
           checked={floatOn}
           onChange={(event) => setFloat(event.target.checked)}
@@ -498,16 +507,24 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
 
       <div className="dsh-screen-control-detail">
         <strong>强制销毁虚拟屏</strong>
-        <span>销毁全部虚拟屏与其上的任务（无视会话归属）；需连续点击三次确认。</span>
+        <span>销毁全部虚拟屏与其上的任务（无视会话归属）；需连续点击三次确认，点错可取消。</span>
       </div>
-      <button
-        type="button"
-        className="dsh-dev-btn"
-        data-stage={confirmStage}
-        onClick={tapForce}
-      >
-        {forceLabel}
-      </button>
+      {/* P5-5：破坏性按钮必须与同页的普通按钮**看得出区别**（dsh-dev-danger），
+          并在确认态给「取消」。此前它长得和「刷新状态」一模一样，还紧邻其它按钮。 */}
+      <div className="dsh-dev-row">
+        <button
+          type="button"
+          className={forceArmed ? 'dsh-dev-btn dsh-dev-danger' : 'dsh-dev-btn'}
+          data-stage={confirmStage}
+          data-armed={forceArmed ? 'true' : 'false'}
+          onClick={tapForce}
+        >
+          {forceLabel}
+        </button>
+        {forceArmed ? (
+          <button type="button" className="dsh-dev-link" onClick={cancelForce}>取消</button>
+        ) : null}
+      </div>
       {forceMsg === null ? null : <p className={forceOk === true ? 'dsh-dev-hint' : 'dsh-dev-error'}>{forceMsg}</p>}
     </section>
   )

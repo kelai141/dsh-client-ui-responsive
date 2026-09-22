@@ -116,16 +116,26 @@ describe('PhoneControlSection（手机控制设置页）', () => {
     expect((el.querySelector('select[aria-label="虚拟屏分辨率档位"]') as HTMLSelectElement).value).toBe('1')
   })
 
-  it('退后台自动浮窗：默认开，关闭写壳桥并回读', async () => {
+  it('虚拟屏浮窗：默认开，关闭写壳桥并回读', async () => {
     let enabled = true
     const getVdisplayFloatEnabled = vi.fn(() => enabled)
     const setVdisplayFloatEnabled = vi.fn((next: boolean) => { enabled = next })
     const el = await render({ getVdisplayFloatEnabled, setVdisplayFloatEnabled })
-    const toggle = el.querySelector('input[aria-label="退后台自动浮窗"]') as HTMLInputElement
+    const toggle = el.querySelector('input[aria-label="虚拟屏浮窗（退后台自动显示）"]') as HTMLInputElement
     expect(toggle.checked).toBe(true)
     await act(async () => { toggle.click() })
     expect(setVdisplayFloatEnabled).toHaveBeenCalledWith(false)
-    expect((el.querySelector('input[aria-label="退后台自动浮窗"]') as HTMLInputElement).checked).toBe(false)
+    expect((el.querySelector('input[aria-label="虚拟屏浮窗（退后台自动显示）"]') as HTMLInputElement).checked).toBe(false)
+  })
+
+  // P5-6：与开发者选项里的「悬浮球」去混淆——两处都叫「浮」，必须各说各是什么，
+  // 且其中一处要点名另一处，否则用户在两个设置页之间对不上号。
+  it('P5-6：浮窗命名必须点名「悬浮球」以示区分', async () => {
+    const el = await render({})
+    const text = el.textContent ?? ''
+    expect(text).toContain('虚拟屏浮窗')
+    expect(text, '必须点名开发者选项里的「悬浮球」是另一个东西').toContain('悬浮球')
+    expect(text, '必须说清它显示的是什么').toContain('虚拟屏画面')
   })
 
   it('强制销毁：前两次点击只确认，第三次才调用壳桥', async () => {
@@ -141,6 +151,35 @@ describe('PhoneControlSection（手机控制设置页）', () => {
     await act(async () => { button.click() })
     expect(forceDestroyVdisplay).toHaveBeenCalledTimes(1)
     expect(el.textContent).toContain('已强制销毁全部虚拟屏')
+  })
+
+  // P5-5：破坏性按钮必须与同页普通按钮**看得出区别**，且进入确认态后必须能退出。
+  // 反证：把 className 的 danger 分支删掉、或删掉「取消」按钮，本组用例即判红。
+  it('P5-5：确认态必须带危险样式，未进入确认态不得带', async () => {
+    const el = await render({ forceDestroyVdisplay: () => JSON.stringify({ ok: true }) })
+    const button = buttonByText(el, '强制销毁虚拟屏')
+    expect(button.className, '未确认时是普通按钮').not.toContain('dsh-dev-danger')
+    expect(button.getAttribute('data-armed')).toBe('false')
+    await act(async () => { button.click() })
+    expect(button.className, '进入确认态必须换成危险样式').toContain('dsh-dev-danger')
+    expect(button.getAttribute('data-armed')).toBe('true')
+    expect(button.getAttribute('data-stage')).toBe('1')
+  })
+
+  it('P5-5：确认态必须给取消途径，取消后不得调用壳桥', async () => {
+    const forceDestroyVdisplay = vi.fn(() => JSON.stringify({ ok: true }))
+    const el = await render({ forceDestroyVdisplay })
+    const button = buttonByText(el, '强制销毁虚拟屏')
+    await act(async () => { button.click() })
+    const cancel = buttonByText(el, '取消')
+    await act(async () => { cancel.click() })
+    expect(forceDestroyVdisplay, '取消后一次都不该调用').not.toHaveBeenCalled()
+    expect(button.className, '取消后回到普通样式').not.toContain('dsh-dev-danger')
+    expect(button.textContent).toBe('强制销毁虚拟屏')
+    // 取消是真的撤臂：再点一下只回到 1/3，而不是直接执行。
+    await act(async () => { button.click() })
+    expect(forceDestroyVdisplay).not.toHaveBeenCalled()
+    expect(button.textContent).toContain('1/3')
   })
 
   // ── Shizuku 区块：状态源（0.14.1 缺陷本体）────────────────────
