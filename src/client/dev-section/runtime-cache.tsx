@@ -187,7 +187,9 @@ export function RuntimeCacheRow() {
         >{busy ? '清理中…' : '清理'}</button>
       </div>
 
-      {targets.length > 0 && (
+      {/* S3-16（设备实测补正）：读不到时**不得**继续展示上一次的清单——那会让「读不到」的头部
+          与一份看起来新鲜的清单同时在场，用户会拿陈旧数据当现值。清单只在真值态展示。 */}
+      {scanState === 'ok' && targets.length > 0 && (
         <ul className="dsh-dev-cache-list">
           {targets.map((item) => (
             <li key={item.label ?? item.id}>

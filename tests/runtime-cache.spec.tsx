@@ -225,6 +225,27 @@ describe('RuntimeCacheRow 读不到 vs 真值 0（S3-16）', () => {
     expect(el.querySelector('[data-scan-state]')?.getAttribute('data-scan-state')).toBe('failed')
     const clean = [...el.querySelectorAll('button')].find((b) => b.textContent === '清理') as HTMLButtonElement
     expect(clean.disabled, '读不到时不得允许清理').toBe(true)
+    // 设备实测补正：读不到时不得继续展示上一次的清单（陈旧数据看起来像现值）。
+    expect(el.querySelector('.dsh-dev-cache-list'), '读不到时不得展示缓存清单').toBeNull()
+  })
+
+  it('读不到之后再读成功：清单必须回来（证明上面的隐藏不是永久隐藏）', async () => {
+    let fail = true
+    const impl = vi.fn(async () => {
+      if (fail) throw new Error('offline')
+      return { ok: true, status: 200, json: async () => SCAN_BODY }
+    })
+    vi.stubGlobal('fetch', impl)
+    const el = await render()
+    await act(async () => { await Promise.resolve() })
+    expect(el.textContent).toContain('读不到')
+    expect(el.querySelector('.dsh-dev-cache-list')).toBeNull()
+    fail = false
+    const rescan = [...el.querySelectorAll('button')].find((b) => b.textContent === '重新扫描') as HTMLButtonElement
+    await act(async () => { rescan.click() })
+    await act(async () => { await Promise.resolve() })
+    expect(el.textContent).toContain('运行时缓存可回收：3.0 MB')
+    expect(el.querySelector('.dsh-dev-cache-list')).not.toBeNull()
   })
 
   it('宿主不可用（fetch 抛错）时同样说「读不到」，不退化成 0 B', async () => {
