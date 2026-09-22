@@ -36,14 +36,54 @@ interface NotifySnapshot {
   key?: string
 }
 
-/** 分类展示名（与 NotifyCenter.Face 的五类一一对应；顺序即 UI 顺序）。 */
-const CATEGORY_LABELS: ReadonlyArray<readonly [string, string]> = [
-  ['report', '工作汇报'],
-  ['question', '提问'],
-  ['approval', '授权请求'],
-  ['todo', '待办进度'],
-  ['silent', '后台动态'],
+/**
+ * 分类展示名 + **关掉会怎样**（与 `NotifyCenter.Face` 的五类一一对应；顺序即 UI 顺序）。
+ *
+ * 为什么每行必须带后果（0.14.1 批 4 / P0-5）：旧界面是五个纯标签开关，一行解释都没有。
+ * 而关掉「提问 / 授权请求」的实际后果远重于其它三类——引擎侧 `ask_user_question` 与授权请求
+ * **没有超时**，用户以为「少点打扰」，实际是任务永久挂起（现象是「AI 不动了」）。
+ * 壳侧已把这类的关闭语义改成「不弹窗、不响铃，但仍投递到通知栏可作答」；文案必须如实说明这一点，
+ * 否则用户仍在按旧语义做决定。
+ */
+const CATEGORY_LABELS: ReadonlyArray<readonly [string, string, string]> = [
+  ['report', '工作汇报', '关闭后不再提醒；任务本身不受影响'],
+  ['question', '提问', '关闭 = 不弹窗、不响铃；提问仍会出现在通知栏、可直接作答（AI 在等你的回答）'],
+  ['approval', '授权请求', '关闭 = 不弹窗、不响铃；仍需你在通知栏或应用内批准，工具不会自动放行'],
+  ['todo', '待办进度', '关闭后不再显示步骤进度；任务本身不受影响'],
+  ['silent', '后台动态', '关闭后不再显示看门狗与引擎状态；只影响提示，不影响引擎'],
 ]
+
+/**
+ * 自检结果（壳侧 `NotifyCenter.selfCheck` 的 JSON 形态）。
+ *
+ * 为什么必须有这块 UI：`selfCheck` 与两个系统设置深链在页面侧**零调用点**——系统把渠道降级、
+ * 或用户误关掉通知时，应用看得见、用户看不见，「系统已降级，应用无法调回」这句永远到不了眼前。
+ */
+interface NotifySelfCheck {
+  ok?: boolean
+  channels?: ReadonlyArray<{
+    category?: string
+    label?: string
+    channelId?: string
+    importance?: number
+    enabled?: boolean
+  }>
+  degraded?: ReadonlyArray<string>
+}
+
+/** 读自检；桥缺席/不可解析返回 null（页面显示「不可用」，不伪造）。 */
+function readSelfCheck(): NotifySelfCheck | null {
+  try {
+    const raw = window.androidBridge?.notifySelfCheck?.()
+    if (raw === undefined || raw === '') return null
+    const value = JSON.parse(raw) as NotifySelfCheck
+    if (value === null || typeof value !== 'object') return null
+    if (value.ok === false) return null
+    return value
+  } catch {
+    return null
+  }
+}
 
 /** 解析桥返回；不可解析/桥缺席一律返回 null（调用方据此显示「不可用」，不伪造状态）。 */
 function parseSnapshot(raw: string | undefined): NotifySnapshot | null {
@@ -76,6 +116,9 @@ function readSettings(): string | undefined {
 export function NotifySettingsRow() {
   const [raw, refresh] = useShellState<string | undefined>(readSettings, { pollMs: 0 })
   const [message, setMessage] = useState<string | null>(null)
+  // 自检按需拉取（用户点「通知自检」才读）：它是诊断面，不该在每次渲染都问壳侧。
+  const [selfCheck, setSelfCheck] = useState<NotifySelfCheck | null>(null)
+  const [selfCheckTried, setSelfCheckTried] = useState(false)
 
   const snapshot = parseSnapshot(raw)
 
@@ -137,19 +180,90 @@ export function NotifySettingsRow() {
       </p>
 
       <div className="dsh-dev-notify-cats">
-        {CATEGORY_LABELS.map(([key, label]) => (
-          <label key={key} className="dsh-dev-row dsh-dev-switch">
-            <input
-              type="checkbox"
-              role="switch"
-              aria-label={label}
-              checked={categories[key] === true}
-              onChange={(event) => { write('cat.' + key, event.target.checked) }}
-            />
-            <span>{label}</span>
-          </label>
+        {CATEGORY_LABELS.map(([key, label, consequence]) => (
+          <div key={key} className="dsh-dev-notify-cat">
+            <label className="dsh-dev-row dsh-dev-switch">
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label={label}
+                checked={categories[key] === true}
+                onChange={(event) => { write('cat.' + key, event.target.checked) }}
+              />
+              <span>{label}</span>
+            </label>
+            <p className="dsh-dev-hint">{consequence}</p>
+          </div>
         ))}
       </div>
+      <div className="dsh-dev-row dsh-dev-split">
+        <button
+          type="button"
+          className="dsh-dev-btn"
+          onClick={() => {
+            setSelfCheckTried(true)
+            setSelfCheck(readSelfCheck())
+          }}
+        >
+          通知自检
+        </button>
+        <button
+          type="button"
+          className="dsh-dev-btn"
+          onClick={() => {
+            let ok = false
+            try {
+              ok = window.androidBridge?.openNotifyAppSettings?.() === true
+            } catch {
+              ok = false
+            }
+            if (!ok) setMessage('该系统没有「应用通知设置」页——请在系统设置里手动找到本应用的通知项')
+          }}
+        >
+          系统通知设置
+        </button>
+      </div>
+      {selfCheckTried && selfCheck === null && (
+        <p className="dsh-dev-warn">自检不可用（桥未装配或壳侧上下文未绑定）。</p>
+      )}
+      {selfCheck !== null && (
+        <div className="dsh-dev-notify-check">
+          {(selfCheck.degraded ?? []).length > 0 ? (
+            <p className="dsh-dev-warn">
+              系统已降级以下通知：「{(selfCheck.degraded ?? []).join('、')}」——
+              应用无法调回，需在系统设置里恢复（可从右侧按钮进入）。
+            </p>
+          ) : (
+            <p className="dsh-dev-hint">系统通知状态正常（未被降级）。</p>
+          )}
+          {(selfCheck.channels ?? []).map((c) => (
+            <div key={String(c.channelId ?? c.category)} className="dsh-dev-row dsh-dev-check-row">
+              <span>
+                {(c.label ?? c.category ?? '未知渠道')}
+                {'：'}
+                {c.enabled === false ? '系统已关闭' : '已开启'}
+                {typeof c.importance === 'number' ? '（重要性 ' + c.importance + '）' : ''}
+              </span>
+              <button
+                type="button"
+                className="dsh-dev-link"
+                onClick={() => {
+                  const channelId = String(c.channelId ?? '')
+                  let ok = false
+                  try {
+                    ok = channelId !== '' && window.androidBridge?.openNotifyChannelSettings?.(channelId) === true
+                  } catch {
+                    ok = false
+                  }
+                  if (!ok) setMessage('无法打开该渠道的系统设置页——请在系统设置里手动查找')
+                }}
+              >
+                打开该渠道设置
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {message !== null && <p className="dsh-dev-warn">{message}</p>}
     </div>
   )

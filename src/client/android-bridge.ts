@@ -107,6 +107,12 @@ export interface AndroidShellBridge {
   /** 0.14.1 块J FIX-4：通知设置写入（key = `suppressForeground` 或 `cat.<category>`）。
    *  返回写后读回的 JSON；`applied=false` 即未生效（未知 key / 读回不一致）。 */
   setNotifySetting?: (key: string, value: boolean) => string
+  /** 0.14.1 批 4：通知自检（每渠道的系统实际状态 + 是否被降级）。JSON 字符串。 */
+  notifySelfCheck?: () => string
+  /** 0.14.1 批 4：打开系统「本应用通知设置」；false = 该 ROM 无此页（页面须如实提示）。 */
+  openNotifyAppSettings?: () => boolean
+  /** 0.14.1 批 4：打开某渠道的系统设置页；false = 拉起失败。 */
+  openNotifyChannelSettings?: (channelId: string) => boolean
 }
 
 declare global {

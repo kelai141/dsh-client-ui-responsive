@@ -287,6 +287,17 @@ export const DEV_SECTION_CSS: string = `
   gap: 4px;
 }
 
+/* 每个分类开关 + 它的「关掉会怎样」说明（批 4 / P0-5：纯标签开关会让用户按旧语义做决定）。 */
+.dsh-dev-notify-cat {
+  display: grid;
+  gap: 2px;
+  padding: 4px 0;
+}
+
+.dsh-dev-notify-cat .dsh-dev-hint {
+  margin: 0 0 0 2px;
+}
+
 /* Dark-theme fallback (#43, 2026-08-18): in some environments --dsw-alias-bg-elevated is undefined
  * and falls back to #fff (white bg), while label-primary is white text in dark mode → white-on-white.
  * Provide explicit theme-consistent fallbacks for tokens that may not exist. */
@@ -334,5 +345,17 @@ export const DEV_SECTION_CSS: string = `
     flex: 1 1 calc(50% - 5px);
     text-align: center;
   }
+}
+
+/* 通知自检面（批 4）：每渠道一行「系统实际状态 + 直达系统设置」——此前这条信息零调用点。 */
+.dsh-dev-notify-check {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.dsh-dev-check-row {
+  align-items: center;
+  gap: 8px;
 }
 `
