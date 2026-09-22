@@ -254,6 +254,29 @@ export function NotifySettingsRow() {
           系统通知设置
         </button>
       </div>
+      {/* S3-26：自证「哪几类真的能到达」。渠道状态看上面的自检，这里看**实际到达效果**——
+          「我把提问提醒关了 / 系统降级了渠道之后，任务完成还会不会提醒我」是这一族最实际的疑问。 */}
+      <div className="dsh-dev-row">
+        <button
+          type="button"
+          className="dsh-dev-btn"
+          onClick={() => {
+            let posted = 0
+            try {
+              posted = window.androidBridge?.notifySendTest?.() ?? 0
+            } catch {
+              posted = 0
+            }
+            setMessage(
+              posted > 0
+                ? { text: '已发送 ' + String(posted) + ' 条测试通知（五类各一条）——请到通知栏看哪几条真的到了、哪几条是静默的' }
+                : { text: '一条也没发出去：通知权限未授予或渠道不可用——请先在上面的自检里看渠道状态，并到系统设置里允许通知' },
+            )
+          }}
+        >
+          发送测试通知
+        </button>
+      </div>
       {selfCheckTried && selfCheck === null && (
         <p className="dsh-dev-warn">自检不可用（桥未装配或壳侧上下文未绑定）。</p>
       )}

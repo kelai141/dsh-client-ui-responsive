@@ -113,6 +113,8 @@ export interface AndroidShellBridge {
   openNotifyAppSettings?: () => boolean
   /** 0.14.1 批 4：打开某渠道的系统设置页；false = 拉起失败。 */
   openNotifyChannelSettings?: (channelId: string) => boolean
+  /** 发送五类测试通知，返回实际投递条数（0..5）；0 = 没发出去（权限/渠道不可用）。 */
+  notifySendTest?: () => number
 }
 
 declare global {

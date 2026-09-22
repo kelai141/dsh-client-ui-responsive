@@ -257,6 +257,27 @@ describe('NotifySettingsRow（块J FIX-4 设置页入口）', () => {
     expect(opened).toEqual(['dsh-report'])
   })
 
+  it('S3-26：测试通知按钮经桥发送，并按真实条数如实回执', async () => {
+    const calls: number[] = []
+    const { bridge } = makeBridge({})
+    ;(bridge as Record<string, unknown>).notifySendTest = () => { calls.push(1); return 5 }
+    setBridge(bridge)
+    const el = await render()
+    await act(async () => { buttonByText(el, '发送测试通知').click() })
+    expect(calls.length).toBe(1)
+    expect(el.textContent).toContain('已发送 5 条测试通知')
+  })
+
+  it('S3-26：一条都没发出去时必须如实说没发出去（不得谎报已发送）', async () => {
+    const { bridge } = makeBridge({})
+    ;(bridge as Record<string, unknown>).notifySendTest = () => 0
+    setBridge(bridge)
+    const el = await render()
+    await act(async () => { buttonByText(el, '发送测试通知').click() })
+    expect(el.textContent).toContain('一条也没发出去')
+    expect(el.textContent).not.toContain('已发送')
+  })
+
   it('P3-2：五类用词与壳侧渠道名同源（同一概念不许两个名字）', async () => {
     const { bridge } = makeBridge({})
     setBridge(bridge)
