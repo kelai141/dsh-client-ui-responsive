@@ -13,6 +13,7 @@
  * 用户裁定 7（仅用户平面，不给模型工具）：本面板只有页面按钮 + 受鉴权宿主能力，零新增模型可见工具。
  */
 import { useCallback, useEffect, useState } from 'react'
+import { describeHttpFailure, noticeDataAttrs, type Notice } from '../user-copy.ts'
 
 /** 扫描/执行接口返回的单项。 */
 interface CacheItem {
@@ -28,8 +29,10 @@ interface CacheItem {
   files?: number
   /** 执行结果（execute 面）。 */
   status?: 'removed' | 'failed' | 'skipped'
-  /** 失败/跳过原因。 */
+  /** 失败/跳过原因——**稳定码**（`not-allowlisted` / `remove-failed` …），页面按码翻译成人话。 */
   reason?: string
+  /** 失败明细（诊断用，如 `EBUSY: ...`）：只进 `data-detail`，不进正文（P3-6）。 */
+  detail?: string
 }
 
 /** 扫描载荷。 */
@@ -57,22 +60,34 @@ function fmtBytes(n: number): string {
   return n + ' B'
 }
 
-/** 跳过原因的中文短标签（未知原因原样透出，不吞）。 */
+/**
+ * 跳过原因的中文短标签（未知原因**不原样透出**，见 P3-6：机器码不上屏）。
+ *
+ * 未登记的原因落到 [describeSkipReason] 的兜底句，原始串只进 `data-reason`。
+ */
 const SKIP_LABEL: Record<string, string> = {
   'not-allowlisted': '未列入白名单（本版不清理）',
   absent: '不存在',
   unreadable: '不可读',
-  'log-root-unresolved': '日志目录未注入（壳侧未提供 DSH_FILES_DIR）',
+  'log-root-unresolved': '日志目录未注入（应用未提供日志目录）',
   'current-generation-absent': '当前引擎日志不在场（引擎未启动）',
   preserved: '属保留项',
   'scope-rejected': '越出白名单作用域（已拒绝）',
   vanished: '执行前已消失',
   aborted: '被执行中断跳过',
+  // 执行期失败：原因是稳定码，OS 错误串在 `detail` 里（只进 data-detail）。
+  'remove-failed': '删除失败（文件被占用、只读或权限不足）',
 }
 
+/**
+ * 跳过/失败原因 → 人话（P3-1）。
+ * @param item - 扫描或执行结果里的一项。
+ * @returns 已知原因的中文短标签；未知原因给兜底句（**不回显原码**）。
+ */
 function describe(item: CacheItem): string {
   const reason = item.reason ?? ''
-  return SKIP_LABEL[reason] ?? (reason === '' ? '未知' : reason)
+  if (reason === '') return '原因未记录'
+  return SKIP_LABEL[reason] ?? '原因未在本版登记（可复制日志反馈）'
 }
 
 /**
@@ -82,19 +97,16 @@ function describe(item: CacheItem): string {
 export function RuntimeCacheRow() {
   const [scan, setScan] = useState<CacheScan>({})
   const [report, setReport] = useState<CacheReport | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
+  const [message, setMessage] = useState<Notice | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
       const response = await fetch('/api/android/runtime-cache/scan', { credentials: 'same-origin', cache: 'no-store' })
-      if (response.status === 401 || response.status === 403) {
-        setMessage('未获授权（HTTP ' + String(response.status) + '）——运行时缓存不可读')
-        return
-      }
       if (!response.ok) {
-        setMessage('扫描失败（HTTP ' + String(response.status) + '）')
+        // P3-1/P3-6：状态码只作分档依据，进正文的是「发生了什么 + 能做什么」。
+        setMessage({ text: describeHttpFailure('读取运行时缓存', response.status), http: response.status })
         return
       }
       const payload = (await response.json()) as CacheScan
@@ -118,17 +130,17 @@ export function RuntimeCacheRow() {
         credentials: 'same-origin',
         cache: 'no-store',
       })
-      if (response.status === 401 || response.status === 403) {
-        setMessage('清理未获授权（HTTP ' + String(response.status) + '）——仅限本机壳侧/已授权页面')
+      if (!response.ok) {
+        setMessage({ text: describeHttpFailure('清理运行时缓存', response.status), http: response.status })
         return
       }
       const payload = (await response.json().catch(() => null)) as CacheReport | null
       setReport(payload)
       if (payload === null) {
-        setMessage('清理失败：响应不可解析')
+        setMessage({ text: '清理结果无法解析（响应不是预期的数据）——请重试；仍失败可复制日志反馈' })
       }
     } catch {
-      setMessage('清理请求失败（仅安卓宿主可用）')
+      setMessage({ text: '清理请求失败（仅安卓应用内有此能力）——请确认在本机应用内操作' })
     } finally {
       setBusy(false)
       void refresh()
@@ -188,7 +200,9 @@ export function RuntimeCacheRow() {
         </details>
       )}
 
-      {message !== null && <p className="dsh-dev-hint">{message}</p>}
+      {message !== null && (
+        <p className="dsh-dev-hint" {...noticeDataAttrs(message)}>{message.text}</p>
+      )}
 
       {report !== null && (
         <div>
@@ -199,7 +213,11 @@ export function RuntimeCacheRow() {
           </p>
           <ul className="dsh-dev-cache-list">
             {items.map((item) => (
-              <li key={item.label ?? item.id}>
+              <li
+                key={item.label ?? item.id}
+                {...(item.reason === undefined || item.reason === '' ? {} : { 'data-reason': item.reason })}
+                {...(item.detail === undefined || item.detail === '' ? {} : { 'data-detail': item.detail })}
+              >
                 {item.label ?? item.id} — {item.status === 'removed' ? '已删除 ' + fmtBytes(typeof item.bytes === 'number' ? item.bytes : 0)
                   : item.status === 'failed' ? '失败：' + describe(item)
                     : '跳过：' + describe(item)}

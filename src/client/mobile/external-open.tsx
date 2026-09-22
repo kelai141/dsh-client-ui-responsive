@@ -68,7 +68,7 @@ export function ExternalOpenTab({ sessionId, useSessions, useTabInfo }: PropsRun
           </div>
         )
         : (
-          <p className={css.hint}>{absolute === undefined ? '无法确定该文件的设备路径。' : '当前宿主不支持调用系统应用。'}</p>
+          <p className={css.hint}>{absolute === undefined ? '无法确定该文件的设备路径。' : '当前环境不支持调用系统应用（请在安卓应用内打开）。'}</p>
         )}
       {failure !== null && <p className={css.failure}>{failure.title}：{failure.detail}</p>}
     </div>

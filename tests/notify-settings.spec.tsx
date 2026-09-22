@@ -17,6 +17,7 @@ interface BridgeCall { kind: 'get' | 'set'; key: string; value?: boolean }
 function makeBridge(options: {
   snapshot?: (key: string) => unknown
   write?: (key: string, value: boolean) => unknown
+  selfCheck?: () => unknown
   absent?: boolean
 }) {
   const calls: BridgeCall[] = []
@@ -29,6 +30,8 @@ function makeBridge(options: {
       calls.push({ kind: 'set', key, value })
       return JSON.stringify(options.write?.(key, value) ?? { ok: true, applied: true, reason: 'ok' })
     },
+    // 自检面：形状必须与壳侧 `NotifyCenter.selfCheck` 一致（channels[].selected/exists/degraded/importanceLabel）。
+    notifySelfCheck: () => JSON.stringify(options.selfCheck?.() ?? shellSelfCheck()),
   }
   return { calls, bridge }
 }
@@ -48,6 +51,12 @@ async function render(): Promise<HTMLElement> {
   return host
 }
 
+function buttonByText(el: HTMLElement, text: string): HTMLButtonElement {
+  const button = [...el.querySelectorAll('button')].find((b) => b.textContent === text)
+  if (button === undefined) throw new Error('找不到按钮：' + text)
+  return button as HTMLButtonElement
+}
+
 function switchByLabel(el: HTMLElement, label: string): HTMLInputElement {
   const input = el.querySelector('input[aria-label="' + label + '"]')
   if (input === null) throw new Error('找不到开关：' + label)
@@ -63,6 +72,24 @@ function snapshot(overrides: { suppressForeground?: boolean; categories?: Record
     categories: overrides.categories ?? {
       report: true, question: true, approval: true, todo: true, silent: true,
     },
+  }
+}
+
+/**
+ * 壳侧 `NotifyCenter.selfCheck` 的真实形状（字段名逐字对齐，P3-1）。
+ * 旧页面读 `degraded: string[]` 顶层数组 + `channelId`/`enabled`，三个字段壳侧都不发送 ⇒
+ * 界面永远显示「系统通知状态正常」。
+ */
+function shellSelfCheck(overrides: { channels?: unknown[] } = {}) {
+  return {
+    ok: true,
+    notificationsEnabled: true,
+    permissionGranted: true,
+    permissionLabel: '已授予',
+    channels: overrides.channels ?? [
+      { category: 'report', label: '工作汇报', selected: 'dsh-report', exists: true, importance: 4, importanceLabel: '高（会弹到屏幕上并响铃）', degraded: false },
+      { category: 'question', label: '提问', selected: 'dsh-question', exists: true, importance: 4, importanceLabel: '高（会弹到屏幕上并响铃）', degraded: false },
+    ],
   }
 }
 
@@ -129,8 +156,11 @@ describe('NotifySettingsRow（块J FIX-4 设置页入口）', () => {
     expect(calls.some((c) => c.kind === 'set')).toBe(true)
     // 真源仍为 false ⇒ 开关必须仍是关的（不得乐观置位）。
     expect(switchByLabel(el, '前台抑制通知').checked).toBe(false)
-    expect(el.textContent).toContain('未生效')
-    expect(el.textContent).toContain('readback-mismatch')
+    expect(el.textContent).toContain('系统没有接受这次改动')
+    // P3-1/P3-6：码不上屏（旧断言把「未生效（readback-mismatch）：cat.question」当契约），只进 data-code。
+    expect(el.textContent, '机器码不得出现在正文').not.toContain('readback-mismatch')
+    expect(el.textContent, '内部 key 不得出现在正文').not.toContain('cat.')
+    expect(el.querySelector('[data-code="readback-mismatch"]'), '码必须可诊断').not.toBeNull()
   })
 
   it('五类分类开关各自经桥写入 cat.<类别>，且展示值取自真源', async () => {
@@ -177,6 +207,78 @@ describe('NotifySettingsRow（块J FIX-4 设置页入口）', () => {
     await act(async () => { switchByLabel(el, '前台抑制通知').click() })
     expect(el.textContent).toContain('写入失败')
     expect(switchByLabel(el, '前台抑制通知').checked).toBe(false)
+  })
+
+  it('自检：系统把渠道降级时必须说「已降级」，不得显示「未降级任何渠道」', async () => {
+    const { bridge } = makeBridge({
+      selfCheck: () => shellSelfCheck({
+        channels: [
+          { category: 'question', label: '提问', selected: 'dsh-question', exists: true, importance: 2, importanceLabel: '低（只在通知栏提示，不响铃）', degraded: true },
+        ],
+      }),
+    })
+    setBridge(bridge)
+    const el = await render()
+    await act(async () => { buttonByText(el, '通知自检').click() })
+
+    expect(el.textContent).toContain('系统已降级以下通知')
+    expect(el.textContent).toContain('提问')
+    expect(el.textContent, '降级时不得再声称未降级').not.toContain('系统未降级任何通知渠道')
+    // 档位取壳侧人话，不印数字（旧页面印的是「（重要性 4）」）。
+    expect(el.textContent).toContain('低（只在通知栏提示，不响铃）')
+    expect(el.textContent).not.toContain('重要性 2')
+  })
+
+  it('自检：未被降级时明确说「未降级任何渠道」（与上一条互为正反）', async () => {
+    const { bridge } = makeBridge({ selfCheck: () => shellSelfCheck() })
+    setBridge(bridge)
+    const el = await render()
+    await act(async () => { buttonByText(el, '通知自检').click() })
+    expect(el.textContent).toContain('系统未降级任何通知渠道')
+    expect(el.textContent).not.toContain('系统已降级以下通知')
+    // 总开关与权限也要可见（任务不提醒时用户能看出是哪一层被关）。
+    expect(el.textContent).toContain('应用通知总开关')
+    expect(el.textContent).toContain('已授予')
+  })
+
+  it('自检：渠道设置深链用的是壳侧给的 selected 渠道 id', async () => {
+    const opened: string[] = []
+    const { bridge } = makeBridge({ selfCheck: () => shellSelfCheck() })
+    ;(bridge as Record<string, unknown>).openNotifyChannelSettings = (channelId: string) => {
+      opened.push(channelId)
+      return true
+    }
+    setBridge(bridge)
+    const el = await render()
+    await act(async () => { buttonByText(el, '通知自检').click() })
+    const link = [...el.querySelectorAll('button')].find((b) => b.textContent === '打开该渠道设置')
+    expect(link, '自检行必须有渠道深链').toBeDefined()
+    await act(async () => { (link as HTMLButtonElement).click() })
+    expect(opened).toEqual(['dsh-report'])
+  })
+
+  it('P3-2：五类用词与壳侧渠道名同源（同一概念不许两个名字）', async () => {
+    const { bridge } = makeBridge({})
+    setBridge(bridge)
+    const el = await render()
+    const labels = [...el.querySelectorAll('.dsh-dev-notify-cat input[role="switch"]')]
+      .map((input) => input.getAttribute('aria-label'))
+    // 这五个词必须与壳侧 `UserCopy.notifyCategory` + `NotifyCenter.Face.label` 逐字一致
+    // （Kotlin 侧 `UserCopyTest.faceLabelsShareTheSingleTable` 钉住那一半）。
+    expect(labels).toEqual(['工作汇报', '提问', '授权请求', '待办进度', '后台动态'])
+  })
+
+  it('P3-5：通知设置已从「开发者选项」提级为设置页一级分区（源码级形态断言）', async () => {
+    const fs = await import('node:fs')
+    const index = fs.readFileSync('src/client/index.ts', 'utf8')
+    // 一级分区在场，且指向本文件的区块组件（不是行组件）。
+    expect(index).toContain("id: 'android-notify'")
+    expect(index).toContain('NotifySettingsSection')
+    // 开发者选项里不得再渲染同一组开关（同功能双实现是审查档 §5 的结构性根因）；
+    // 只允许留一行指路文案。
+    const dev = fs.readFileSync('src/client/dev-section/DevSection.tsx', 'utf8')
+    expect(dev, '开发者选项不得再内嵌 NotifySettingsRow').not.toContain('<NotifySettingsRow')
+    expect(dev).toContain('设置 → 通知')
   })
 
   it('回前台重读真源（从系统设置返回后展示值不得陈旧）', async () => {

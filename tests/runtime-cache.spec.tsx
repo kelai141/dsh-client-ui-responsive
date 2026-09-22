@@ -60,7 +60,7 @@ const EXECUTE_BODY = {
   plannedBytes: 3 * 1024 * 1024,
   items: [
     { id: 'engine-log-1', label: '$DSH_FILES_DIR/engine.log.1', status: 'removed', bytes: 1024 * 1024 },
-    { id: 'cache-pip', label: '$DSH_HOME/cache/pip', status: 'failed', bytes: 0, reason: 'EBUSY: injected' },
+    { id: 'cache-pip', label: '$DSH_HOME/cache/pip', status: 'failed', bytes: 0, reason: 'remove-failed', detail: 'EBUSY: injected' },
   ],
 }
 
@@ -154,7 +154,12 @@ describe('RuntimeCacheRow（块 E 设置页面）', () => {
     })
     expect(el.textContent).toContain('已清理 1 项')
     expect(el.textContent).toContain('1 项失败')
-    expect(el.textContent).toContain('失败：EBUSY: injected')
+    // P3-1/P3-6：OS 错误串不上屏——正文给人话，明细只进 data-detail（可截图给维护方）。
+    expect(el.textContent).toContain('删除失败（文件被占用、只读或权限不足）')
+    expect(el.textContent, 'OS 错误串不得出现在正文').not.toContain('EBUSY')
+    const failed = el.querySelector('[data-detail="EBUSY: injected"]')
+    expect(failed, '明细必须可诊断').not.toBeNull()
+    expect(failed?.getAttribute('data-reason')).toBe('remove-failed')
     expect(el.textContent).toContain('$DSH_FILES_DIR/engine.log.1 — 已删除 1.0 MB')
   })
 
@@ -171,7 +176,10 @@ describe('RuntimeCacheRow（块 E 设置页面）', () => {
     const fetchSpy = makeFetch({ '/api/android/runtime-cache/scan': { status: 403 } })
     vi.stubGlobal('fetch', fetchSpy.impl)
     const el = await render()
-    expect(el.textContent).toContain('未获授权（HTTP 403）')
+    // P3-1/P3-6：状态码不上屏——正文给人话，码只进 data-http（可 grep、可截图给维护方）。
+    expect(el.textContent).toContain('未获授权')
+    expect(el.textContent, '状态码不得出现在正文').not.toContain('403')
+    expect(el.querySelector('[data-http="403"]'), '状态码必须可诊断').not.toBeNull()
     const clean = [...el.querySelectorAll('button')].find((b) => b.textContent === '清理') as HTMLButtonElement
     expect(clean.disabled, '无可回收体积时「清理」必须禁用').toBe(true)
   })

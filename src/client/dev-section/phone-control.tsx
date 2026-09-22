@@ -21,6 +21,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { useShellState } from '../mobile/use-shell-state.ts'
+import { describeCallReason } from '../user-copy.ts'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '../android-bridge.ts'
@@ -83,24 +84,11 @@ const SHIZUKU_UNREADABLE: ShizukuStatus = {
 }
 
 /**
- * 外链/拉起失败原因的中文口径。
+ * 外链/拉起失败原因的中文口径在**唯一真源** `../user-copy.ts`（0.14.1 批 3 / P3-1）。
  *
- * 机器码不上屏是本轮 UI 审查的文案专项：`unknown-key` / `no-handler` 这类串对用户无意义，
- * 且不给下一步。这里只做一件事——把壳侧原因翻译成「发生了什么 + 你现在能做什么」。
+ * 本文件此前自带一张 `LINK_REASON_LABEL` 局部表——与本页其它面、以及壳侧各自的局部表并存，
+ * 于是同一个码在不同界面说法不同。局部表已删除：翻译只此一处，码本身只进 `data-*`。
  */
-const LINK_REASON_LABEL: Record<string, string> = {
-  'unknown-key': '这个链接没有在本版登记，请更新应用后再试',
-  'insecure-url': '链接不是 https，已拒绝打开',
-  'no-handler': '设备上没有能打开该链接的应用，请先安装浏览器',
-  'not-installed': '还没装 Shizuku，请先点「下载 Shizuku」',
-  'bridge not wired': '壳侧未接线（安装包不完整），请重新安装应用',
-}
-
-/** 壳侧原因 → 人话（未知原因原样带出，不吞）。 */
-export function linkReasonLabel(reason: string | undefined): string {
-  if (reason === undefined || reason === '') return '未知原因'
-  return LINK_REASON_LABEL[reason] ?? '调用失败：' + reason
-}
 
 /**
  * Shizuku 通道状态 → 中文状态词。
@@ -150,7 +138,7 @@ export function settleLinkCall(
 ): { ok: boolean; text: string } {
   const answer = parseAnswer(raw)
   if (answer?.ok === true) return { ok: true, text: okText }
-  return { ok: false, text: failLead + '：' + linkReasonLabel(answer?.reason) }
+  return { ok: false, text: failLead + '：' + describeCallReason(answer?.reason) }
 }
 
 /** 受限设置解锁结算（壳侧回 `{ok, message}`，message 已是人话）。 */
@@ -161,7 +149,7 @@ export function settleUnlockCall(raw: string | undefined): { ok: boolean; text: 
   }
   return {
     ok: false,
-    text: '解锁失败：' + (answer?.message ?? linkReasonLabel(answer?.reason)),
+    text: '解锁失败：' + (answer?.message ?? describeCallReason(answer?.reason)),
   }
 }
 
@@ -187,7 +175,9 @@ function readVdisplay(): VdisplayStatus {
       ...(typeof parsed?.displayId === 'number' ? { displayId: parsed.displayId } : {}),
     }
   } catch {
-    return { state: 'blocked', code: 'vdisplay-status-unavailable', guidance: '虚拟屏状态读取失败（fail-closed）。' }
+    // P3-6：旧文案是「虚拟屏状态读取失败（fail-closed）。」——`fail-closed` 是内部策略词，
+    // 对用户没有意义；这里说清「读不到 + 不会做什么 + 能做什么」，策略词只留在 code 里。
+    return { state: 'blocked', code: 'vdisplay-status-unavailable', guidance: '读不到虚拟屏状态：应用内桥未接好或解析失败。重新打开应用再试；读不到时不会把虚拟屏请求回退到真实屏幕。' }
   }
 }
 
@@ -265,8 +255,8 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
   const [floatOn, refreshFloat] = useShellState<boolean>(readFloat)
   const [a11y, refreshA11y] = useShellState<A11yStatus>(readA11y, { pollMs: 3_000 })
   const [confirmStage, setConfirmStage] = useState(0)
-  const [forceMsg, setForceMsg] = useState<string | null>(null)
-  const [forceOk, setForceOk] = useState<boolean | null>(null)
+  // 失败回执带 `code`：码只进 `data-code`（可 grep / 可截图给维护方），不进正文（P3-1/P3-6）。
+  const [forceMsg, setForceMsg] = useState<{ ok: boolean; text: string; code?: string } | null>(null)
   const [shizukuMsg, setShizukuMsg] = useState<string | null>(null)
   const [shizukuOk, setShizukuOk] = useState<boolean | null>(null)
   const [a11yMsg, setA11yMsg] = useState<string | null>(null)
@@ -363,11 +353,11 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
       const raw = window.androidBridge?.forceDestroyVdisplay?.()
       const parsed = raw ? JSON.parse(raw) as { ok?: boolean; code?: string } : undefined
       const ok = parsed?.ok === true
-      setForceOk(ok)
-      setForceMsg(ok ? '已强制销毁全部虚拟屏。' : '销毁失败：' + String(parsed?.code ?? 'unknown'))
+      setForceMsg(ok
+        ? { ok: true, text: '已强制销毁全部虚拟屏。' }
+        : { ok: false, text: '销毁失败：' + describeCallReason(parsed?.code), code: String(parsed?.code ?? 'unknown') })
     } catch {
-      setForceOk(false)
-      setForceMsg('销毁调用失败（原生桥不可用）。')
+      setForceMsg({ ok: false, text: '销毁调用失败（应用内桥不可用）——请重新打开应用后重试。', code: 'bridge-threw' })
     }
     refreshVdisplay()
   }, [confirmStage, refreshVdisplay])
@@ -525,7 +515,12 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
           <button type="button" className="dsh-dev-link" onClick={cancelForce}>取消</button>
         ) : null}
       </div>
-      {forceMsg === null ? null : <p className={forceOk === true ? 'dsh-dev-hint' : 'dsh-dev-error'}>{forceMsg}</p>}
+      {forceMsg === null ? null : (
+        <p
+          className={forceMsg.ok ? 'dsh-dev-hint' : 'dsh-dev-error'}
+          {...(forceMsg.code === undefined ? {} : { 'data-code': forceMsg.code })}
+        >{forceMsg.text}</p>
+      )}
     </section>
   )
 }

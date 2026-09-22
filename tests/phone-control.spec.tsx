@@ -6,12 +6,12 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import {
   PhoneControlSection,
-  linkReasonLabel,
   settleLinkCall,
   settleUnlockCall,
   shizukuStateLabel,
   shizukuStepHint,
 } from '../src/client/dev-section/phone-control.tsx'
+import { describeCallReason } from '../src/client/user-copy.ts'
 import { DEV_SECTION_CSS } from '../src/client/dev-section/dev-section.css.ts'
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
@@ -273,7 +273,8 @@ describe('PhoneControlSection（手机控制设置页）', () => {
     const openExternalLink = vi.fn(() => JSON.stringify({ ok: false, reason: 'no-handler' }))
     const el = await render({ shizukuStatus: () => shizukuJson(), openExternalLink })
     await act(async () => { buttonByText(el, '下载 Shizuku').click() })
-    expect(el.textContent).toContain('设备上没有能打开该链接的应用')
+    expect(el.textContent).toContain('设备上没有能打开它的应用')
+    expect(el.textContent, '机器码不得上屏').not.toContain('no-handler')
     expect(el.textContent).not.toContain('no-handler')
   })
 
@@ -339,11 +340,16 @@ describe('手机控制纯函数（文案口径）', () => {
     }
   })
 
-  it('linkReasonLabel 把壳侧原因翻成人话；未知原因原样带出而不是吞掉', () => {
-    expect(linkReasonLabel('unknown-key')).toContain('没有在本版登记')
-    expect(linkReasonLabel('not-installed')).toContain('下载 Shizuku')
-    expect(linkReasonLabel(undefined)).toBe('未知原因')
-    expect(linkReasonLabel('something-new')).toContain('something-new')
+  it('失败原因一律经唯一真源翻成人话（P3-1）', () => {
+    // 本文件原有的局部表 LINK_REASON_LABEL 已删除——断言改指向唯一真源，避免又长出第二张表。
+    expect(describeCallReason('unknown-key')).toContain('没有在本版登记')
+    expect(describeCallReason('not-installed')).toContain('下载 Shizuku')
+  })
+
+  it('未知原因不得原样带出机器码（旧断言把缺陷当契约，已按 P3-1 反向）', () => {
+    const text = describeCallReason('something-new')
+    expect(text).not.toContain('something-new')
+    expect(text.length).toBeGreaterThan(8)
   })
 
   it('settleLinkCall / settleUnlockCall：只有 ok 才算成功，失败必带原因', () => {

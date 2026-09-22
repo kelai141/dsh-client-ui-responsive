@@ -42,6 +42,7 @@ import { SessionLogDialogObserver } from './session-log-dialog-observer.ts'
 import { openSessionForNotify, type SessionOpenFace } from './mobile/notify-landing.ts'
 import { DevSection } from './dev-section/DevSection.tsx'
 import { PhoneControlSection } from './dev-section/phone-control.tsx'
+import { NotifySettingsSection } from './dev-section/notify-settings.tsx'
 import { DEV_SECTION_CSS } from './dev-section/dev-section.css.ts'
 import { GeneralSettings } from './general-settings/GeneralSettings.tsx'
 import { ThemeBridge } from './theme-bridge.ts'
@@ -235,6 +236,15 @@ export function apply(ctx: ClientContext): void {
     // 开发者选项子区（2026-08-23）：ADB 授权面板等安卓调试设施挂进此槽——不开独立导航行。
     children: { 'settings.dev.item': { kind: 'list', scope: 'root' } },
   }, DevSection))
+
+  // 通知（0.14.1 批 3 / P3-5）：提醒方式与「关掉会怎样」是每个用户都要做的决定，
+  // 此前唯一入口埋在开发者选项里（对普通用户不可达）——提级为设置页一级分区。
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'android-notify',
+    order: 97,
+    label: () => '通知',
+  }, NotifySettingsSection))
 
   // 手机控制（0.14.0 用户定例）：把屏幕/Shizuku/虚拟屏/浮窗/无障碍/强制销毁收进独立设置页。
   ctx.slots.inject('settings.section', () => ctx.slots.register({

@@ -11,8 +11,8 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { useShellState } from '../mobile/use-shell-state.ts'
+import { describeHttpFailure, noticeDataAttrs, type Notice } from '../user-copy.ts'
 import { RuntimeCacheRow } from './runtime-cache.tsx'
-import { NotifySettingsRow } from './notify-settings.tsx'
 import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls in the settings.section owner share (erased at build time, types only).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -36,7 +36,7 @@ function readOverlayEnabled(): boolean {
 
 const CONFIRM_TEXT: Record<'restart' | 'close', { title: string; desc: string; ok: string }> = {
   restart: {
-    title: '重启 DeepSeek Harness？',
+    title: '重启 DeepCode？',
     desc: '将终止并自动重新启动本地引擎与页面（约数秒）。未发送的内容会保留在输入框。',
     ok: '重启',
   },
@@ -77,15 +77,16 @@ export function DevSection({ renderSlot }: DevSectionProps) {
   const [confirm, setConfirm] = useState<'restart' | 'close' | null>(null)
   // F5.1/D15（2026-08-23 补齐）：文件直达临时工作区占用 + 一键清理（R16 手动清理 + 占用展示）
   const [incomingBytes, setIncomingBytes] = useState<number | null>(null)
-  const [incomingMsg, setIncomingMsg] = useState<string | null>(null)
+  // 回执 = 人话正文 + 机器码；码只进 `data-http`（P3-1/P3-6）。
+  const [incomingMsg, setIncomingMsg] = useState<Notice | null>(null)
   const [cleaning, setCleaning] = useState(false)
 
   const refreshIncoming = useCallback(async () => {
     try {
       // FX-205.6：端点带插件侧鉴权——浏览器面凭据是 same-origin 会话 cookie，必须显式声明。
       const r = await fetch('/api/android/file-incoming', { credentials: 'same-origin', cache: 'no-store' })
-      if (r.status === 401 || r.status === 403) {
-        setIncomingMsg('未获授权（HTTP ' + r.status + '）——来件状态不可读')
+      if (!r.ok) {
+        setIncomingMsg({ text: describeHttpFailure('读取来件占用', r.status), http: r.status })
         return
       }
       if (r.ok) {
@@ -93,7 +94,7 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         setIncomingBytes(typeof j.bytes === 'number' ? j.bytes : null)
       }
     } catch {
-      /* 非安卓宿主：静默 */
+      /* 非安卓应用内（浏览器等）：静默 */
     }
   }, [])
 
@@ -120,15 +121,17 @@ export function DevSection({ renderSlot }: DevSectionProps) {
     setIncomingMsg(null)
     try {
       const r = await fetch('/api/android/file-incoming/clean', { method: 'POST', credentials: 'same-origin', cache: 'no-store' })
-      if (r.status === 401 || r.status === 403 || r.status === 405) {
-        setIncomingMsg('清理未获授权（HTTP ' + r.status + '）——仅限本机壳侧/已授权页面')
+      if (!r.ok) {
+        setIncomingMsg({ text: describeHttpFailure('清理临时工作区', r.status), http: r.status })
         return
       }
-      const j = (await r.json().catch(() => null)) as { ok?: boolean; removed?: number } | null
+      const j = (await r.json().catch(() => null)) as { ok?: boolean; removed?: number; reason?: string } | null
       // FX-205.5：清理范围收敛为「本工具自有临时项」，用户放入工作区的文件不再被删。
-      setIncomingMsg(j?.ok ? `已清理本工具临时项（${j.removed ?? 0} 项）——相关会话中的文件引用将失效` : '清理失败')
+      setIncomingMsg(j?.ok
+        ? { text: `已清理本工具临时项（${j.removed ?? 0} 项）——相关会话中的文件引用将失效` }
+        : { text: '清理未完成——请重试；仍失败可复制日志反馈', ...(j?.reason === undefined ? {} : { code: j.reason }) })
     } catch {
-      setIncomingMsg('清理请求失败（仅安卓宿主可用）')
+      setIncomingMsg({ text: '清理请求失败（仅安卓应用内有此能力）——请确认在本机应用内操作' })
     } finally {
       setCleaning(false)
       void refreshIncoming()
@@ -208,7 +211,7 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         setOverlayMsg('悬浮球已关闭')
       }
     } catch {
-      setOverlayMsg('桥不可用（仅安卓宿主支持悬浮球）')
+      setOverlayMsg('应用内连接不可用（悬浮球仅安卓应用内支持）——请重新打开应用后重试')
     }
   }, [refreshOverlay])
 
@@ -221,7 +224,7 @@ export function DevSection({ renderSlot }: DevSectionProps) {
       const j = JSON.parse(raw ?? '{}') as { ok?: boolean; path?: string; error?: string }
       setConfigMsg(j.ok ? `已导出到 ${j.path ?? 'exports/config/settings.yaml'}` : `导出失败：${j.error ?? '未知错误'}`)
     } catch {
-      setConfigMsg('导出失败：桥不可用（仅安卓宿主可用）')
+      setConfigMsg('导出失败：应用内连接不可用（仅安卓应用内可用）——请重新打开应用后重试')
     }
   }, [])
 
@@ -231,7 +234,7 @@ export function DevSection({ renderSlot }: DevSectionProps) {
       const j = JSON.parse(raw ?? '{}') as { ok?: boolean; hint?: string; error?: string }
       setConfigMsg(j.ok ? `已导入并生效（原配置备份为 settings.yaml.import-backup）。${j.hint ?? ''}` : `导入失败：${j.error ?? '未知错误'}`)
     } catch {
-      setConfigMsg('导入失败：桥不可用（仅安卓宿主可用）')
+      setConfigMsg('导入失败：应用内连接不可用（仅安卓应用内可用）——请重新打开应用后重试')
     }
   }, [])
 
@@ -249,7 +252,7 @@ export function DevSection({ renderSlot }: DevSectionProps) {
   return (
     <div data-plugin="dev-section" onKeyDown={onKeyDown}>
       <p className="dsh-dev-note">
-        Android 壳调试设施：控制台为快照内嵌 Termux bash；日志默认关闭。
+        DeepCode 开发者选项：控制台为运行时内嵌命令行；日志默认关闭。
       </p>
 
       {/* 0.14.0：屏幕/Shizuku/虚拟屏/浮窗/无障碍/强制销毁已迁到独立「手机控制」设置页。 */}
@@ -307,9 +310,9 @@ export function DevSection({ renderSlot }: DevSectionProps) {
       {/* 0.14.1 块 E（详档 §4.3）：运行时缓存清理——白名单制、先给可回收体积再执行、逐项落审计。 */}
       <RuntimeCacheRow />
 
-      {/* 0.14.1 块J FIX-4（J-1 修复）：通知设置入口——前台抑制 + 五类分类开关。
-          此前 NotifyCenter 的三个设置入口零外部调用点，能力在、入口无。 */}
-      <NotifySettingsRow />
+      {/* 0.14.1 批 3（P3-5）：通知设置已从开发者选项**提级**为设置页一级分区「通知」。
+          这里只留指路（同功能双实现是审查档 §5 的结构性根因，故不重复渲染同一组开关）。 */}
+      <p className="dsh-dev-hint">通知的提醒方式（含「关掉提问提醒会发生什么」）在「设置 → 通知」里。</p>
 
       {/* F5.1/D15：文件直达临时工作区（占用展示 + 一键清理；PRD R16 手动清理 + 占用展示） */}
       {incomingBytes !== null && (
@@ -322,7 +325,7 @@ export function DevSection({ renderSlot }: DevSectionProps) {
           </button>
         </div>
       )}
-      {incomingMsg !== null && <p className="dsh-dev-hint">{incomingMsg}</p>}
+      {incomingMsg !== null && <p className="dsh-dev-hint" {...noticeDataAttrs(incomingMsg)}>{incomingMsg.text}</p>}
       <p className="dsh-dev-hint">清理会删除临时工作区内的外部文件；相关会话中的文件引用将失效（D15：纯手动清理，无自动清理）。</p>
       <p className="dsh-dev-hint">{logPathHint}</p>
       <p className="dsh-dev-warn">日志包含命令与模型内容，仅用于排查，请及时清理。</p>
