@@ -51,6 +51,16 @@ export interface AndroidShellBridge {
   openA11ySettings?: () => void
   /** 0.14.0: 解锁 Android 13+ 受限设置（appops，经 Shizuku 特权 shell）。返回 JSON {ok, message}。 */
   unlockRestrictedSettings?: () => string
+  /** 0.14.1「手机控制」：打开登记在册的外部链接（系统浏览器/默认应用）。
+   *  key 只能是 `shizuku-download` / `shizuku-tutorial`——页面不传 URL，URL 表在壳侧。
+   *  返回 JSON `{ok, reason?}`（reason ∈ unknown-key / insecure-url / no-handler / 异常类名）。 */
+  openExternalLink?: (key: 'shizuku-download' | 'shizuku-tutorial') => string
+  /** 0.14.1「手机控制」：拉起 Shizuku 管理器界面（授权只能由用户在 Shizuku 内完成）。
+   *  未安装 → `{"ok":false,"reason":"not-installed"}`。 */
+  openShizukuManager?: () => string
+  /** 0.14.1「手机控制」：Shizuku 特权通道真实状态 JSON（installed/running/granted/bound/binding/code/guidance）。
+   *  这是「装没装」的事实判定来源——不是 vdisplayStatus()（后者是虚拟屏状态）。 */
+  shizukuStatus?: () => string
   /** Pre-0.13.7 implicit ACTION_VIEW on a single path (kept: the page's path clicks
    *  fall back to it when the chooser is unavailable). Returns whether it launched. */
   openNativePath?: (path: string) => boolean
