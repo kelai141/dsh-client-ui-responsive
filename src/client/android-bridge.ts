@@ -18,7 +18,11 @@ export interface AndroidShellBridge {
   /** H1: sync system-dark query (fallback for vendor WebViews whose matchMedia is stuck on light). */
   getSystemDark?: () => boolean
   /** Restart the engine service process (kill + watchdog relaunch). */
-  restartEngine?: () => void
+  /**
+   * 重启引擎；返回是否**真的发起了**（false = 已在重启中或上下文缺失）。
+   * S3-15：页面据此决定要不要进入「重启中…」的忙碌态——旧签名是 void，页面只能假装忙碌。
+   */
+  restartEngine?: () => boolean
   /** Shut down the harness: stop the engine and fall back to the init (startup/test) screen (no auto-restart). */
   shutdownToGuide?: () => void
   /** Refresh the Web UI (reload the engine page). */

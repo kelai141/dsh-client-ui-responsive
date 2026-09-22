@@ -406,6 +406,20 @@ export function BrowserTab({ sessionId, useTabInfo }: PropsRuntime<'sidebar.righ
     publishBounds()
   }, [publishBounds])
 
+  if (!status.available) {
+    // S3-18：旧实现在桥缺席时把整块面板画成全 disabled 的控件，屏上**没有一个字**解释——
+    // 用户看到的是「能看见但点了没反应」。这里给出原因与下一步（与其它面板的「不可用」口径一致）。
+    return (
+      <section className={css.root} data-plugin="android-browser" data-browser-unavailable="true">
+        <p className={css.hint}>
+          内置浏览器不可用：应用与页面的连接未装配（安装包不完整，或当前不在安卓应用内）。
+          请重新安装或更新应用后再试；现在也可以直接复制网址用系统浏览器打开。
+        </p>
+        <div ref={stageRef} className={css.stage} data-testid="browser-stage" />
+      </section>
+    )
+  }
+
   return (
     <section className={css.root} data-plugin="android-browser">
       <form className={css.bar + ' ' + css.barTop + (collapsed ? ' ' + css.barCollapsed : '')} onSubmit={open}>

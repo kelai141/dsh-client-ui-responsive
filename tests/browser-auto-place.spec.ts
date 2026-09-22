@@ -66,6 +66,7 @@ function page(owner: string, generation: number, tabId = 'tab-1', url = 'https:/
 beforeEach(() => { document.documentElement.removeAttribute(SESSION_ID_ATTRIBUTE) })
 afterEach(() => {
   document.documentElement.removeAttribute(SESSION_ID_ATTRIBUTE)
+  document.documentElement.removeAttribute('data-dsh-browser-pending')
   document.querySelectorAll('[data-sidebar-right-expand]').forEach((node) => { node.remove() })
 })
 
@@ -316,5 +317,49 @@ describe('块 D：AI 浏览器自动落位的会话绑定（G-10）', () => {
     expect(sidebar.calls, '改前该断言必红（旧实现写的是上屏会话）').not.toEqual([])
     expect(sidebar.calls[0].entry).toBe('openTab')
     expect(sidebar.calls[0].sessionId, '旧入口不携带任何会话身份').toBeUndefined()
+  })
+})
+
+// ── 0.14.1 批 9（§3.3 S3-19）：收起态下「等展开」不得对用户完全静默 ─────────────
+describe('侧栏收起时待展开的可见标记（S3-19）', () => {
+  it('收起期出现的新页面：写待展开标记（徽标据此显示），落位后清掉', () => {
+    const source = statusSource(page('session-a', 1))
+    const sidebar = sidebarSpy()
+    const state = { collapsed: true }
+    // 直接构造（makePlacement 的 collapsed 是**布尔**入参，传函数会被当真值——首版踩过）。
+    const placement = new BrowserAutoPlace({
+      kind: KIND,
+      status: source.read,
+      currentSessionId: () => 'session-a',
+      collapsed: () => state.collapsed,
+      sidebar: () => sidebar.face as never,
+    })
+
+    placement.tick()                       // 基线
+    source.state.status = page('session-a', 2)
+    placement.tick()                       // 收起期出现新页面 → 记下来
+    expect(document.documentElement.getAttribute('data-dsh-browser-pending'), '收起期必须有可见标记')
+      .toBe('collapsed')
+    expect(sidebar.calls, '收起时仍不得写侧栏').toEqual([])
+
+    state.collapsed = false
+    placement.tick()                       // 用户展开 → 落位并清标记
+    expect(sidebar.calls.length).toBeGreaterThan(0)
+    expect(document.documentElement.hasAttribute('data-dsh-browser-pending'), '落位后标记必须清掉').toBe(false)
+  })
+
+  it('侧栏没收起时不得留下待展开标记（不误报徽标）', () => {
+    const source = statusSource(page('session-a', 1))
+    const placement = new BrowserAutoPlace({
+      kind: KIND,
+      status: source.read,
+      currentSessionId: () => 'session-a',
+      collapsed: () => false,
+      sidebar: () => sidebarSpy().face as never,
+    })
+    placement.tick()
+    source.state.status = page('session-a', 2)
+    placement.tick()
+    expect(document.documentElement.hasAttribute('data-dsh-browser-pending')).toBe(false)
   })
 })

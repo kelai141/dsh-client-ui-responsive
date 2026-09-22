@@ -77,13 +77,17 @@ describe('AI 浏览器 Files 侧栏工作台（0.14.0 极简面板）', () => {
     expect(def.guide?.[0].description?.()).toContain('右侧栏')
   })
 
-  it('host 缺席：无任何说明文字，控件禁用，工位仍在场', async () => {
+  it('host 缺席：给原因与下一步，工位仍在场（S3-18 反向旧契约）', async () => {
+    // 旧契约是「无任何说明文字 + 控件一律 disabled」——审查档 §3.3 第 18 行判它是**缺陷**：
+    // 用户看到能点但点不动的面板，屏上没有一个字解释。现在必须给原因 + 下一步。
     const el = await render()
-    expect(el.textContent).not.toContain('BrowserHost')
+    expect(el.textContent).not.toContain('BrowserHost')  // 仍不得泄漏内部术语
     expect(el.querySelector('select')).toBeNull()
     expect(el.querySelector('[data-testid="browser-stage"]')).not.toBeNull()
-    expect((el.querySelector('input[aria-label="浏览器地址"]') as HTMLInputElement).disabled).toBe(true)
-    expect((el.querySelector('input[aria-label="分辨率"]') as HTMLInputElement).disabled).toBe(true)
+    expect(el.textContent).toContain('内置浏览器不可用')
+    // 不再是「禁用的控件」，而是根本不给会误导的控件。
+    expect(el.querySelector('input[aria-label="浏览器地址"]')).toBeNull()
+    expect(el.querySelector('input[aria-label="分辨率"]')).toBeNull()
   })
 
   it('打开调用原生 BrowserHost 并发布 bounds；页面已开时同一按钮变刷新', async () => {
@@ -301,5 +305,28 @@ describe('可见性判据：收起 vs 全屏（0.14.0 设备实证三次修正�
     expect(wiring).not.toMatch(/querySelector\(\s*'\[data-rightbar-collapsed[^)]*\)\s*!==\s*null/)
     // 反向：旧的 mounted 入口不得再出现在落位接线里（那是缺陷 A 的调用形态）。
     expect(wiring).not.toContain('sidebar.openTab?.(')
+  })
+})
+// ── 0.14.1 批 9（§3.3 S3-18）：桥不在场时不得是一块无解释的死面板 ──────────────
+describe('BrowserTab 不可用时的解释（S3-18）', () => {
+  it('桥缺席：给出原因与下一步，且不再渲染整块禁用控件', async () => {
+    const el = await render(undefined)
+    expect(el.querySelector('[data-browser-unavailable="true"]'), '必须标记为不可用态').toBeTruthy()
+    expect(el.textContent).toContain('内置浏览器不可用')
+    expect(el.textContent).toContain('重新安装或更新应用')
+    expect(el.textContent).toContain('系统浏览器')
+    // 旧实现是「一屏 disabled 控件 + 没有一个字」——这里输入框必须不再出现。
+    expect(el.querySelector('input[aria-label="浏览器地址"]')).toBeNull()
+  })
+
+  it('壳侧明确回报 available=false 时同样给解释', async () => {
+    const el = await render({ browserHostStatus: () => state({ available: false, ok: false }) })
+    expect(el.textContent).toContain('内置浏览器不可用')
+  })
+
+  it('可用时不得出现不可用说明（不误报）', async () => {
+    const el = await render({ browserHostStatus: () => state() })
+    expect(el.querySelector('[data-browser-unavailable="true"]')).toBeNull()
+    expect(el.querySelector('input[aria-label="浏览器地址"]')).toBeTruthy()
   })
 })

@@ -33,6 +33,14 @@
  */
 import { SESSION_ID_ATTRIBUTE } from './session-marker.ts'
 
+/**
+ * 侧栏收起时「有待展开的浏览器标签」的标记属性（S3-19）。
+ *
+ * 唯一真源在这里（写方），读方是 `MobileChrome` 的侧栏开关徽标——两处必须同字面量，
+ * 所以只在这个模块里定义一次并导出。
+ */
+export const BROWSER_PENDING_ATTR = 'data-dsh-browser-pending'
+
 /** Shell status document, as far as placement reads it. */
 export interface BrowserHostStatusLike {
   /** A page exists in the shell's current workspace. */
@@ -221,10 +229,19 @@ export class BrowserAutoPlace {
         // collapsed period is remembered and flushed on the user's own expansion; a page that was
         // already registered before the collapse needs no second write.
         if (changed) this.pending.add(owner)
+        // S3-19：收起态下的「记下来等展开」对用户是**完全静默**的（屏上没有任何提示）。这里把
+        // 它在 <html> 上标出来，由 MobileChrome 画成侧栏开关上的徽标 —— 位置就在用户要点的按钮上。
+        if (this.pending.size > 0) {
+          try { document.documentElement.setAttribute(BROWSER_PENDING_ATTR, 'collapsed') } catch { /* DOM 不可用 */ }
+        }
         return
       }
       if (!changed && !this.pending.has(owner)) return
       this.place(owner)
+      // 已落位：清掉待展开标记（徽标随之消失）。
+      if (this.pending.size === 0) {
+        try { document.documentElement.removeAttribute(BROWSER_PENDING_ATTR) } catch { /* DOM 不可用 */ }
+      }
     } catch {
       /* Shell unavailable: observe again on the next pass; never surface an exception. */
     }

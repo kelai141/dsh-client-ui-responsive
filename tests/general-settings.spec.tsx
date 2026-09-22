@@ -92,3 +92,31 @@ describe('GeneralSettings 沉浸式开关（ST-10）', () => {
     expect(input.checked).toBe(false)
   })
 })
+
+// ── 0.14.1 批 9（§3.3 S3-17）：本项此前是全仓唯一没有失败反馈路径的设置项 ─────────
+describe('GeneralSettings 沉浸式开关的失败回执（S3-17）', () => {
+  it('写后回读与请求不一致时如实说明（不得默默回弹）', async () => {
+    // 壳桥接受调用但不改变真值（宿主拒绝）——旧实现 refresh 一下，开关自己弹回去，屏上无解释。
+    const el = await render({ getImmersiveMode: () => true, setImmersiveMode: () => {} })
+    await act(async () => { el.click() })
+    expect(host!.textContent).toContain('沉浸式状态栏没有')
+  })
+
+  it('桥抛错时给失败回执（不假装已生效）', async () => {
+    const el = await render({
+      getImmersiveMode: () => false,
+      setImmersiveMode: () => { throw new Error('bridge blew up') },
+    })
+    await act(async () => { el.click() })
+    expect(host!.textContent).toContain('设置没有生效')
+  })
+
+  it('正常生效时不得出现任何失败文案', async () => {
+    let value = false
+    const el = await render({ getImmersiveMode: () => value, setImmersiveMode: (v: boolean) => { value = v } })
+    await act(async () => { el.click() })
+    expect(value).toBe(true)
+    expect(host!.textContent).not.toContain('设置没有生效')
+    expect(host!.textContent).not.toContain('没有开启')
+  })
+})

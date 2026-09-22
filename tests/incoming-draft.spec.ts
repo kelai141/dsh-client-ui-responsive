@@ -169,3 +169,34 @@ describe('IncomingDraftConsumer', () => {
     }
   })
 })
+
+// ── 0.14.1 批 9（§3.3 S3-21）：拿不到临时工作区时不得静默丢弃 ──────────────────
+describe('来件草稿的工作区不可用回执（S3-21）', () => {
+  it('拿不到工作区路径时给出用户可见回执，且只给一次', async () => {
+    const events: CustomEvent[] = []
+    const listener = (e: Event): void => { events.push(e as CustomEvent) }
+    window.addEventListener('dsh:export-result', listener)
+    window.androidBridge = { incomingWorkspacePath: () => '' } as never
+    const fetchImpl = vi.fn<IncomingDraftFetch>().mockResolvedValue(json({ items: [{
+      entryId: 'opaque-entry', state: 'received', name: 'photo.jpg', bytes: 11,
+    }] }))
+    const consumer = new IncomingDraftConsumer(fetchImpl, {
+      refreshSessions: async () => {},
+      createSession: async () => 'unused',
+      openSession: () => {},
+      sessionScope: () => ({}),
+      attachGenericFile: () => true,
+      notify: () => {},
+    })
+
+    await consumer.poll()
+    // 旧实现：`if (cwd === '') return` —— 用户的分享就此消失，屏上什么都没有。
+    expect(events.length, '必须给出一次可见回执').toBe(1)
+    expect(String(events[0].detail.title)).toContain('分享进来的文件')
+    expect(String(events[0].detail.detail)).toContain('重新分享')
+    // 再轮询一次不得刷屏（同一 entryId 只提示一次）。
+    await consumer.poll()
+    expect(events.length, '同一文件只提示一次').toBe(1)
+    window.removeEventListener('dsh:export-result', listener)
+  })
+})

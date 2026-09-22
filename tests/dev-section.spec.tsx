@@ -8,7 +8,7 @@ import { DevSection } from '../src/client/dev-section/DevSection.tsx'
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 type Bridge = {
-  restartEngine?: () => void
+  restartEngine?: () => boolean
   shutdownToGuide?: () => void
   reloadWebUI?: () => void
   openConsole?: () => void
@@ -67,7 +67,8 @@ describe('DevSection（开发者选项设置页）', () => {
 
   it('重启：点击后先弹二次确认，确认后才调桥并短暂禁用按钮', async () => {
     vi.useFakeTimers()
-    const restartEngine = vi.fn()
+    // S3-15：忙碌态只在**桥如实回报「已发起」**时进入，故这里的桩返回 true（旧签名 void 已改）。
+    const restartEngine = vi.fn(() => true)
     const el = await render({ restartEngine })
     const btn = [...el.querySelectorAll('button')].find(b => b.textContent === '重启')!
     await act(async () => { btn.click() })
@@ -226,3 +227,69 @@ describe('DevSection（开发者选项设置页）', () => {
 
 // 0.14.0：开放屏幕范围选择器随「手机控制」设置分区迁出——用例见 phone-control.spec.tsx。
 
+
+// ── 0.14.1 批 9（§3.3 S3-14 / S3-15）───────────────────────────────────────
+describe('DevSection 破坏性操作与假忙碌（S3-14 / S3-15）', () => {
+  /** 临时工作区清理按钮（按文本定位；文案为「一键清理」）。 */
+  function cleanButton(el: HTMLElement): HTMLButtonElement {
+    const btn = [...el.querySelectorAll('button')].find(b => b.textContent === '一键清理')
+    expect(btn, '一键清理按钮必须在场').toBeTruthy()
+    return btn as HTMLButtonElement
+  }
+
+  it('S3-14：「一键清理」必须二次确认，确认前不得发起清理请求', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calls.push(String(url))
+      if (String(url).includes('file-incoming') && !String(url).includes('clean')) {
+        return { ok: true, status: 200, json: async () => ({ bytes: 4096 }) }
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, removed: 2 }) }
+    }))
+    const el = await render({})
+    await act(async () => { await Promise.resolve() })
+
+    await act(async () => { cleanButton(el).click() })
+    // 旧实现：单击即删。现在必须只弹确认。
+    expect(el.textContent).toContain('清理临时工作区？')
+    expect(el.textContent).toContain('无法恢复')
+    expect(calls.some(u => u.includes('/clean')), '确认之前不得发起清理').toBe(false)
+
+    // 确认后才真的删。注意：同页还有「运行时缓存清理」的按钮，文本同为「清理」——
+    // 必须**限定在确认弹窗内**取（首版取到的是缓存那枚，测试自身踩了选择器歧义）。
+    const dialog = el.querySelector('[role="dialog"]')
+    expect(dialog, '必须弹出确认对话框').toBeTruthy()
+    const ok = [...dialog!.querySelectorAll('button')].find(b => b.textContent === '清理') as HTMLButtonElement
+    expect(ok, '确认弹窗必须有执行按钮').toBeTruthy()
+    await act(async () => { ok.click() })
+    await act(async () => { await Promise.resolve() })
+    expect(calls.some(u => u.includes('/clean'))).toBe(true)
+  })
+
+  it('S3-15：重启没发起时如实说明，不得进入假忙碌态', async () => {
+    // 桥存在但返回 false（已在重启中/未发起）——旧实现无论成败都显示「重启中…」两秒后自己变回。
+    const el = await render({ restartEngine: () => false })
+    const restart = [...el.querySelectorAll('button')].find(b => b.textContent === '重启') as HTMLButtonElement
+    await act(async () => { restart.click() })
+    const confirmBtn = [...el.querySelectorAll('button')].find(b => b.textContent === '重启' && b !== restart) as HTMLButtonElement
+    await act(async () => { confirmBtn.click() })
+    expect(el.textContent).toContain('重启没有发起')
+    expect(el.textContent, '不得显示假忙碌').not.toContain('重启中…')
+  })
+
+  it('S3-15：桥缺席时重启也要如实说没发起（不是假装在重启）', async () => {
+    const el = await render({})
+    const restart = [...el.querySelectorAll('button')].find(b => b.textContent === '重启') as HTMLButtonElement
+    await act(async () => { restart.click() })
+    const confirmBtn = [...el.querySelectorAll('button')].find(b => b.textContent === '重启' && b !== restart) as HTMLButtonElement
+    await act(async () => { confirmBtn.click() })
+    expect(el.textContent).toContain('重启没有发起')
+  })
+
+  it('S3-15：控制台桥缺席时给回执（不再静默）', async () => {
+    const el = await render({})
+    const btn = [...el.querySelectorAll('button')].find(b => b.textContent === '打开控制台') as HTMLButtonElement
+    await act(async () => { btn.click() })
+    expect(el.textContent).toContain('控制台不可用')
+  })
+})

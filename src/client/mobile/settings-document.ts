@@ -13,6 +13,7 @@
  * chooser refuses, the event is left alone so upstream behavior (and its error message) stays.
  */
 import { chooserAvailable, openPathChooser } from './open-path.ts'
+import { reportUserFacingResult } from '../export-result.ts'
 
 /** Upstream action labels this handler claims (zh / en dictionaries). */
 const ACTION_LABELS = ['打开配置文件', 'Open configuration file']
@@ -43,17 +44,23 @@ function settingsPath(): string {
  * 复制到已放行的 `Documents/dshdata/exports/config/`，页面打开的是这份副本（UI 文案已说明）。
  * 副本拿不到时才退回旧路径（私有路径会被白名单拒绝，届时仍走上游错误路径）。
  */
-function settingsPathForChooser(): string {
+/**
+ * 选择器要打开的路径，并标明它是不是**导出副本**（S3-20）。
+ *
+ * 缺陷现场：这个动作实际打开的是壳侧导出的副本，而界面上一个字都没说——用户以为改的是真源，
+ * 改完发现「不生效」。把「是不是副本」作为返回值交给调用方，由它给用户可见说明。
+ */
+function settingsPathForChooser(): { path: string; isCopy: boolean } {
   const bridge = (window as unknown as { androidBridge?: SettingsPathBridge }).androidBridge
   if (typeof bridge?.exportSettingsDocument === 'function') {
     try {
       const exported = bridge.exportSettingsDocument() || ''
-      if (exported !== '') return exported
+      if (exported !== '') return { path: exported, isCopy: true }
     } catch {
       /* 导出失败后回退 */
     }
   }
-  return settingsPath()
+  return { path: settingsPath(), isCopy: false }
 }
 
 /** Whether the clicked element is the upstream open-configuration-file action. */
@@ -72,12 +79,22 @@ export class SettingsDocumentAction {
   private readonly onClick = (event: MouseEvent): void => {
     if (!chooserAvailable()) return
     if (!isSettingsDocumentAction(event.target)) return
-    const path = settingsPathForChooser()
-    if (path === '') return
+    const target = settingsPathForChooser()
+    if (target.path === '') return
     // Claim only when the shell really took the path: a refusal keeps upstream's own error path.
-    if (!openPathChooser(path, 'view').ok) return
+    if (!openPathChooser(target.path, 'view').ok) return
     event.preventDefault()
     event.stopPropagation()
+    if (target.isCopy) {
+      // S3-20：打开的是**副本**，改它不会生效。用与导出结果同一条对话框通道如实说明
+      // （这条动作由上游按钮触发，我们无法在它旁边内联渲染文字）。
+      reportUserFacingResult({
+        ok: true,
+        title: '已打开配置文件的副本',
+        detail: '这是导出副本（Documents/dshdata/exports/config/settings.yaml），在它上面修改不会直接生效；'
+          + '改完请回到「设置 → 开发者选项 → 导入配置」。',
+      })
+    }
   }
 
   attach(): void {

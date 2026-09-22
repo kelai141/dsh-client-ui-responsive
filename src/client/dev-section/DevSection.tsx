@@ -34,7 +34,14 @@ function readOverlayEnabled(): boolean {
   }
 }
 
-const CONFIRM_TEXT: Record<'restart' | 'close', { title: string; desc: string; ok: string }> = {
+/**
+ * 破坏性/中断性操作的二次确认文案（0.14.1 批 9 / S3-14）。
+ *
+ * 为什么三处都要确认：同一页里「运行时缓存清理」原本有确认弹窗，而「一键清理临时工作区」
+ * 与「关闭」一样是**单击即执行**的破坏性操作——同一个页面里同级破坏力却有两种确认强度，
+ * 用户无法从外观预判哪一下会真的删东西（审查档 §3.3 第 14 行）。
+ */
+const CONFIRM_TEXT: Record<'restart' | 'close' | 'clean', { title: string; desc: string; ok: string }> = {
   restart: {
     title: '重启 DeepCode？',
     desc: '将终止并自动重新启动本地引擎与页面（约数秒）。未发送的内容会保留在输入框。',
@@ -44,6 +51,12 @@ const CONFIRM_TEXT: Record<'restart' | 'close', { title: string; desc: string; o
     title: '关闭并回退到初始化界面？',
     desc: '将停止本地引擎并退出到初始化界面；引擎不会自动重启，需手动再次启动。',
     ok: '关闭',
+  },
+  clean: {
+    title: '清理临时工作区？',
+    desc: '将删除文件直达（分享进来）的临时文件；相关会话中的文件引用会失效，无法恢复。'
+      + '会话本身、附件、配置与凭据不受影响。',
+    ok: '清理',
   },
 }
 
@@ -67,6 +80,8 @@ export function DevSection({ renderSlot }: DevSectionProps) {
   const [overlayOn, refreshOverlay] = useShellState<boolean>(readOverlayEnabled)
   const [overlayMsg, setOverlayMsg] = useState<string | null>(null)
   const [restarting, setRestarting] = useState(false)
+  /** 重启/刷新等动作的失败回执（S3-15：旧实现在桥缺席时显示「重启中…」两秒后自己变回去）。 */
+  const [actionMsg, setActionMsg] = useState<Notice | null>(null)
   const [allFiles] = useShellState<boolean>(() => {
     try {
       return window.androidBridge?.hasAllFilesAccess?.() ?? false
@@ -74,7 +89,7 @@ export function DevSection({ renderSlot }: DevSectionProps) {
       return false
     }
   })
-  const [confirm, setConfirm] = useState<'restart' | 'close' | null>(null)
+  const [confirm, setConfirm] = useState<'restart' | 'close' | 'clean' | null>(null)
   // F5.1/D15（2026-08-23 补齐）：文件直达临时工作区占用 + 一键清理（R16 手动清理 + 占用展示）
   const [incomingBytes, setIncomingBytes] = useState<number | null>(null)
   // 回执 = 人话正文 + 机器码；码只进 `data-http`（P3-1/P3-6）。
@@ -150,12 +165,20 @@ export function DevSection({ renderSlot }: DevSectionProps) {
 
   const doRestart = useCallback(() => {
     setConfirm(null)
-    setRestarting(true)
+    setActionMsg(null)
+    // S3-15：只有**真的发起了**重启才进入忙碌态；否则如实说没发起（旧实现无论成败都显示
+    // 「重启中…」并在 2s 后自己变回——那是「看起来在工作」的假忙碌，用户会以为重启过了）。
+    let started = false
     try {
-      window.androidBridge?.restartEngine?.()
+      started = window.androidBridge?.restartEngine?.() === true
     } catch {
-      /* bridge absent: nothing to do */
+      started = false
     }
+    if (!started) {
+      setActionMsg({ text: '重启没有发起：应用与页面的连接不可用，或已在重启中——请稍等几秒；仍无效请关闭并重新打开应用' })
+      return
+    }
+    setRestarting(true)
     window.setTimeout(() => setRestarting(false), 2000)
   }, [])
 
@@ -169,18 +192,28 @@ export function DevSection({ renderSlot }: DevSectionProps) {
   }, [])
 
   const reload = useCallback(() => {
+    setActionMsg(null)
     try {
-      window.androidBridge?.reloadWebUI?.()
+      if (window.androidBridge?.reloadWebUI === undefined) {
+        setActionMsg({ text: '刷新界面不可用：应用与页面的连接未装配——请关闭并重新打开应用' })
+        return
+      }
+      window.androidBridge.reloadWebUI()
     } catch {
-      /* bridge absent: nothing to do */
+      setActionMsg({ text: '刷新界面失败：应用与页面的连接不可用——请关闭并重新打开应用' })
     }
   }, [])
 
   const openConsole = useCallback(() => {
+    setActionMsg(null)
     try {
-      window.androidBridge?.openConsole?.()
+      if (window.androidBridge?.openConsole === undefined) {
+        setActionMsg({ text: '控制台不可用：应用与页面的连接未装配——请关闭并重新打开应用' })
+        return
+      }
+      window.androidBridge.openConsole()
     } catch {
-      /* bridge absent: nothing to do */
+      setActionMsg({ text: '控制台打开失败：应用与页面的连接不可用——请关闭并重新打开应用' })
     }
   }, [])
 
@@ -270,6 +303,8 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         <button type="button" className="dsh-dev-btn" onClick={openConsole}>打开控制台</button>
       </div>
 
+      {actionMsg !== null && <p className="dsh-dev-warn" {...noticeDataAttrs(actionMsg)}>{actionMsg.text}</p>}
+
       <label className="dsh-dev-row dsh-dev-switch">
         <input
           type="checkbox"
@@ -320,7 +355,13 @@ export function DevSection({ renderSlot }: DevSectionProps) {
           <span>
             文件直达临时工作区占用：{fmtBytes(incomingBytes)}
           </span>
-          <button type="button" className="dsh-dev-btn dsh-dev-danger" disabled={cleaning || incomingBytes === 0} onClick={() => void cleanIncoming()}>
+          {/* S3-14：破坏性操作一律先确认（旧实现单击即删，与同页「运行时缓存清理」的二次确认不一致）。 */}
+          <button
+            type="button"
+            className="dsh-dev-btn dsh-dev-danger"
+            disabled={cleaning || incomingBytes === 0}
+            onClick={() => { setConfirm('clean') }}
+          >
             {cleaning ? '清理中…' : '一键清理'}
           </button>
         </div>
@@ -354,8 +395,14 @@ export function DevSection({ renderSlot }: DevSectionProps) {
               >取消</button>
               <button
                 type="button"
-                className={confirm === 'close' ? 'dsh-dev-btn dsh-dev-danger' : 'dsh-dev-btn'}
-                onClick={confirm === 'restart' ? doRestart : doClose}
+                className={confirm === 'restart' ? 'dsh-dev-btn' : 'dsh-dev-btn dsh-dev-danger'}
+                onClick={() => {
+                  const which = confirm
+                  setConfirm(null)
+                  if (which === 'restart') doRestart()
+                  else if (which === 'close') doClose()
+                  else void cleanIncoming()
+                }}
               >{CONFIRM_TEXT[confirm].ok}</button>
             </div>
           </div>

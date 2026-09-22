@@ -96,6 +96,11 @@ function describe(item: CacheItem): string {
  */
 export function RuntimeCacheRow() {
   const [scan, setScan] = useState<CacheScan>({})
+  /**
+   * 扫描状态（S3-16）：`unknown`（还没读到/宿主不可用）与 `ok`（真值）必须分开——
+   * 旧实现把「读不到」渲染成「可回收：0 B（0 项）」，看起来像「确实没东西可清」的合法空态。
+   */
+  const [scanState, setScanState] = useState<'unknown' | 'ok' | 'failed'>('unknown')
   const [report, setReport] = useState<CacheReport | null>(null)
   const [message, setMessage] = useState<Notice | null>(null)
   const [busy, setBusy] = useState(false)
@@ -106,14 +111,18 @@ export function RuntimeCacheRow() {
       const response = await fetch('/api/android/runtime-cache/scan', { credentials: 'same-origin', cache: 'no-store' })
       if (!response.ok) {
         // P3-1/P3-6：状态码只作分档依据，进正文的是「发生了什么 + 能做什么」。
+        setScanState('failed')
         setMessage({ text: describeHttpFailure('读取运行时缓存', response.status), http: response.status })
         return
       }
       const payload = (await response.json()) as CacheScan
       setScan(payload)
+      setScanState('ok')
       setMessage(null)
     } catch {
-      // 桌面宿主/未装配：静默（本行是 Android 壳设施，非安卓时不报错）
+      // 桌面宿主/未装配：不报错（本行是 Android 壳设施），但**也不许冒充真值**——
+      // 状态留 unknown ⇒ 头部显示「读不到」而不是「0 B」。
+      setScanState('unknown')
       setMessage(null)
     }
   }, [setScan])
@@ -154,9 +163,15 @@ export function RuntimeCacheRow() {
 
   return (
     <div className="dsh-dev-cache" data-plugin="dev-runtime-cache">
-      <div className="dsh-dev-row">
+      <div className="dsh-dev-row" data-scan-state={scanState}>
         <span>
-          运行时缓存可回收：{fmtBytes(reclaimable)}（{targets.length} 项）
+          {scanState === 'ok'
+            ? (reclaimable > 0
+              // 真值：读到了，且有可回收体积。
+              ? '运行时缓存可回收：' + fmtBytes(reclaimable) + '（' + String(targets.length) + ' 项）'
+              // 真值：读到了，确实没有可清理项（这才是合法的空态）。
+              : '运行时缓存：暂无可清理项（本版白名单内没有残留）')
+            : '运行时缓存可回收：读不到（不是 0——应用内的读取通道不可用或返回异常）'}
         </span>
         <button
           type="button"
@@ -167,7 +182,7 @@ export function RuntimeCacheRow() {
         <button
           type="button"
           className="dsh-dev-btn dsh-dev-danger"
-          disabled={busy || reclaimable === 0}
+          disabled={busy || scanState !== 'ok' || reclaimable === 0}
           onClick={() => { setConfirming(true) }}
         >{busy ? '清理中…' : '清理'}</button>
       </div>

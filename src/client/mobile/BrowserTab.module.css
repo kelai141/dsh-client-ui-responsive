@@ -7,6 +7,17 @@
   background: var(--dsw-alias-bg-base);
 }
 
+/* S3-18：桥不在场时的说明行——面板不可用时必须有一个字解释，而不是整块死控件。 */
+.hint {
+  margin: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 8px;
+  color: var(--dsw-alias-text-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 /* 顶 / 底控制条：只保留输入与按钮，无任何文字标签；收起态以高度归零让位给页面。 */
 .bar {
   display: flex;

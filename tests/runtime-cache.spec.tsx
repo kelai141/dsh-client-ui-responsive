@@ -184,10 +184,15 @@ describe('RuntimeCacheRow（块 E 设置页面）', () => {
     expect(clean.disabled, '无可回收体积时「清理」必须禁用').toBe(true)
   })
 
-  it('宿主未装配（fetch 抛错）时静默降级，不抛异常', async () => {
+  it('宿主未装配（fetch 抛错）时如实说「读不到」，不抛异常也不冒充 0 B', async () => {
+    // S3-16：旧断言要求显示「可回收：0 B」——那是把「读不到」画成合法空态，属「把缺陷当契约」。
+    // 现在：不报错、界面照常渲染，但头部必须说读不到，清理入口禁用。
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline') }))
     const el = await render()
-    expect(el.textContent).toContain('运行时缓存可回收：0 B')
+    expect(el.textContent).toContain('读不到')
+    expect(el.textContent, '不得冒充真值 0').not.toContain('可回收：0 B')
+    const clean = [...el.querySelectorAll('button')].find((b) => b.textContent === '清理') as HTMLButtonElement
+    expect(clean.disabled).toBe(true)
   })
 
   it('可回收体积为 0 时禁用「清理」按钮（不给无意义破坏性入口）', async () => {
@@ -205,5 +210,38 @@ describe('RuntimeCacheRow（块 E 设置页面）', () => {
     const el = await render()
     await act(async () => { [...el.querySelectorAll('button')].find((b) => b.textContent === '重新扫描')!.click() })
     expect(fetchSpy.calls.filter((call) => call.method === 'GET')).toHaveLength(2)
+  })
+})
+
+// ── 0.14.1 批 9（§3.3 S3-16）：「读不到」不得画成「0 B」 ─────────────────────
+describe('RuntimeCacheRow 读不到 vs 真值 0（S3-16）', () => {
+  it('扫描失败时头部必须说「读不到」，且清理按钮禁用', async () => {
+    const fetchSpy = makeFetch({ '/api/android/runtime-cache/scan': { status: 500 } })
+    vi.stubGlobal('fetch', fetchSpy.impl)
+    const el = await render()
+    // 旧实现：`reclaimable` 回落成 0 ⇒ 「可回收：0 B（0 项）」，看起来像「确实没东西可清」。
+    expect(el.textContent).toContain('读不到')
+    expect(el.textContent, '不得把读不到画成 0 B').not.toContain('可回收：0 B')
+    expect(el.querySelector('[data-scan-state]')?.getAttribute('data-scan-state')).toBe('failed')
+    const clean = [...el.querySelectorAll('button')].find((b) => b.textContent === '清理') as HTMLButtonElement
+    expect(clean.disabled, '读不到时不得允许清理').toBe(true)
+  })
+
+  it('宿主不可用（fetch 抛错）时同样说「读不到」，不退化成 0 B', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline') }))
+    const el = await render()
+    expect(el.textContent).toContain('读不到')
+    expect(el.textContent).not.toContain('可回收：0 B')
+  })
+
+  it('扫描成功但没有可清理项时，才是「暂无可清理项」这个合法空态', async () => {
+    const fetchSpy = makeFetch({
+      '/api/android/runtime-cache/scan': { body: { ok: true, reclaimableBytes: 0, targets: [], skipped: [] } },
+    })
+    vi.stubGlobal('fetch', fetchSpy.impl)
+    const el = await render()
+    expect(el.textContent).toContain('暂无可清理项')
+    expect(el.textContent).not.toContain('读不到')
+    expect(el.querySelector('[data-scan-state]')?.getAttribute('data-scan-state')).toBe('ok')
   })
 })
