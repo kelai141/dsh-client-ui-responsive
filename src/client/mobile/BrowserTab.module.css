@@ -1,0 +1,96 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  background: var(--dsw-alias-bg-base);
+}
+
+/* S3-18：桥不在场时的说明行——面板不可用时必须有一个字解释，而不是整块死控件。 */
+.hint {
+  margin: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 8px;
+  color: var(--dsw-alias-text-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* 顶 / 底控制条：只保留输入与按钮，无任何文字标签；收起态以高度归零让位给页面。 */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: height 140ms ease, padding 140ms ease, opacity 140ms ease;
+}
+.barTop { border-bottom: 1px solid var(--dsw-alias-border-l3); }
+.barBottom { border-top: 1px solid var(--dsw-alias-border-l3); }
+.barCollapsed {
+  height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-markdown-small);
+}
+.primary,
+.mode {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font: var(--dsw-font-markdown-small);
+}
+.primary {
+  border: 1px solid var(--dsw-specific-primary);
+  background: var(--dsw-specific-primary);
+  color: var(--dsw-static-neutral-bluish-00);
+}
+.mode {
+  border: 1px solid var(--dsw-alias-border-l4);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+.mode[aria-pressed='true'] {
+  border-color: var(--dsw-specific-primary);
+  color: var(--dsw-specific-primary);
+}
+.input:disabled,
+.primary:disabled,
+.mode:disabled { opacity: 0.5; }
+
+/* 原生 BrowserHost 覆盖层按此矩形定位；这里不画任何内容（占用态除外）。 */
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.occupied {
+  margin: 0;
+  padding: 0 16px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-markdown-small);
+  text-align: center;
+}

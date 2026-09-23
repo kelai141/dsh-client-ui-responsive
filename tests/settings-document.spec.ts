@@ -76,3 +76,25 @@ describe('SettingsDocumentAction', () => {
     expect(openPathChooser).not.toHaveBeenCalled()
   })
 })
+
+// ── 0.14.1 批 9（§3.3 S3-20）：打开的是**副本**必须说明，否则用户以为改的是真源 ──
+describe('打开配置文件时说明「这是副本」（S3-20）', () => {
+  it('走导出副本路径时给出说明（含「改完要导入」的下一步）', () => {
+    const events: CustomEvent[] = []
+    const listener = (e: Event): void => { events.push(e as CustomEvent) }
+    window.addEventListener('dsh:export-result', listener)
+    // 注意：文件既有的 bridge() 工厂**返回的对象与挂到 window 的不是同一个**（各建一次字面量），
+    // 所以这里自己装一份完整桥（首版在返回值上加方法，没生效——测试自身的坑）。
+    ;(window as unknown as { androidBridge: unknown }).androidBridge = {
+      openPathChooser: vi.fn(() => '{"ok":true}'),
+      settingsPath: vi.fn(() => '/data/data/pkg/files/home/.dsh/settings.yaml'),
+      exportSettingsDocument: vi.fn(() => '/storage/emulated/0/Documents/dshdata/exports/config/settings.yaml'),
+    }
+    action.attach()
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    window.removeEventListener('dsh:export-result', listener)
+    expect(events.length, '必须发出一条用户可见说明').toBe(1)
+    expect(String(events[0].detail.title)).toContain('副本')
+    expect(String(events[0].detail.detail)).toContain('导入配置')
+  })
+})

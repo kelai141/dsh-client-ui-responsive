@@ -30,6 +30,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { ExportResultDialog } from './ExportResultDialog.tsx'
 import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
 import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
+import { ATTACHMENT_PICKER_MENU_CSS } from './attachment-picker-menu.css.ts'
+import { AttachmentPickerMenuEnhancer } from './mobile/attachment-picker-menu.ts'
 import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
 import { COMPOSER_INSETS_CSS } from './composer-insets.css.ts'
 import { TRAJECTORY_DETAILS_CSS } from './trajectory-details.css.ts'
@@ -37,7 +39,10 @@ import { TrajectoryPanelsObserver } from './trajectory-panels-observer.ts'
 import { ComposerPopupGuard } from './composer-popup-guard.ts'
 import { SESSION_LOG_DIALOG_HIDE_CSS } from './session-log-dialog.css.ts'
 import { SessionLogDialogObserver } from './session-log-dialog-observer.ts'
+import { openSessionForNotify, type SessionOpenFace } from './mobile/notify-landing.ts'
 import { DevSection } from './dev-section/DevSection.tsx'
+import { PhoneControlSection } from './dev-section/phone-control.tsx'
+import { NotifySettingsSection } from './dev-section/notify-settings.tsx'
 import { DEV_SECTION_CSS } from './dev-section/dev-section.css.ts'
 import { GeneralSettings } from './general-settings/GeneralSettings.tsx'
 import { ThemeBridge } from './theme-bridge.ts'
@@ -54,7 +59,14 @@ import { SettingsDocumentAction } from './mobile/settings-document.ts'
 import { ReferenceMenuEnhancer, REFERENCE_BAR_CSS } from './mobile/reference-menu.ts'
 import { BackStackSignal } from './mobile/back-stack.ts'
 import { SessionMarker, type SessionsFace } from './mobile/session-marker.ts'
-import { BROWSER_TAB_ID, BrowserTab, browserTabDefinition } from './mobile/browser-tab.tsx'
+import { BROWSER_TAB_ID, BROWSER_TAB_KIND, BrowserTab, browserTabDefinition } from './mobile/browser-tab.tsx'
+import {
+  BrowserAutoPlace,
+  domCollapsedNow,
+  domCurrentSessionId,
+  type BrowserSidebarFace,
+} from './mobile/browser-auto-place.ts'
+import { IncomingDraftConsumer } from './mobile/incoming-draft.ts'
 
 // Contract exports only (export-convergence rule): the plugin surface is
 // `apply` and `inject`; every component, marker, and helper stays internal.
@@ -68,7 +80,36 @@ declare global {
 }
 
 /** Required services: composition, copy/theme faces, the runtime sessions, and the frame's panel actions. */
-export const inject = ['slots', 'theme', 'sessions', 'layout']
+export const inject = ['slots', 'theme', 'sessions', 'workspaces', 'uiWorkspace', 'layout', 'conversation']
+
+/** Narrow runtime face for the existing Conversation draft/upload service. */
+interface IncomingConversationFace {
+  /** Build-time J1 seam over the normal composer draft/upload path. */
+  addFiles(sessionId: unknown, files: readonly File[]): boolean
+  input: {
+    for(scope: unknown): {
+      notify(level: 'info' | 'error', text: string): void
+    }
+  }
+}
+
+/** Session service methods used by the process-local external attachment hand-off. */
+interface IncomingSessionsFace {
+  refresh(): Promise<void>
+  open(id: unknown): void
+  scope(id: unknown): unknown | undefined
+}
+
+/** Standard workspace create path used before connecting its blank Session. */
+interface IncomingWorkspacesFace {
+  create(input: { path: string }): Promise<{ workspaceId: unknown }>
+}
+
+/** Standard workspace navigation face; it returns a locally addressable blank session. */
+interface IncomingUiWorkspaceFace {
+  connectWorkspace(workspaceId: unknown): Promise<unknown>
+}
+
 
 /** Append one stylesheet and return its disposer. */
 function injectStyle(id: string, css: string): () => void {
@@ -125,6 +166,16 @@ export function apply(ctx: ClientContext): void {
     guard.attach()
     return () => { guard.detach() }
   }, 'ui-responsive: composer popup geometry guard')
+
+  // The upstream paperclip keeps one hidden file input and one addFiles/upload admission path.
+  // Add an upward DSH-native source menu in front of that exact input rather than a second picker
+  // bridge: each row changes accept in its own user gesture, clicks the existing input, then restores it.
+  ctx.effect(() => injectStyle('attachment-picker-menu', ATTACHMENT_PICKER_MENU_CSS), 'ui-responsive: attachment picker source menu styles')
+  ctx.effect(() => {
+    const picker = new AttachmentPickerMenuEnhancer()
+    picker.attach()
+    return () => { picker.detach() }
+  }, 'ui-responsive: paperclip attachment/image source menu')
 
   // Trajectory local details panel (issue apk#67): on narrow screens the
   // upstream panel is confined between the timeline bar and the composer seat.
@@ -185,6 +236,23 @@ export function apply(ctx: ClientContext): void {
     // 开发者选项子区（2026-08-23）：ADB 授权面板等安卓调试设施挂进此槽——不开独立导航行。
     children: { 'settings.dev.item': { kind: 'list', scope: 'root' } },
   }, DevSection))
+
+  // 通知（0.14.1 批 3 / P3-5）：提醒方式与「关掉会怎样」是每个用户都要做的决定，
+  // 此前唯一入口埋在开发者选项里（对普通用户不可达）——提级为设置页一级分区。
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'android-notify',
+    order: 97,
+    label: () => '通知',
+  }, NotifySettingsSection))
+
+  // 手机控制（0.14.0 用户定例）：把屏幕/Shizuku/虚拟屏/浮窗/无障碍/强制销毁收进独立设置页。
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'android-phone-control',
+    order: 98,
+    label: () => '手机控制',
+  }, PhoneControlSection))
 
   // Android general-settings rows (issue #59): immersive status-bar toggle.
   // 0.13.3 (D6): the font-size slider retired — upstream ui-theme fontSize
@@ -303,6 +371,31 @@ export function apply(ctx: ClientContext): void {
     key: BROWSER_TAB_ID,
   }, BrowserTab))
 
+  // ── AI 浏览器：模型驱动后自动「落位」到右侧栏（0.14.0 P0-2，用户语义；0.14.1 块 D） ──────
+  //
+  // 用户原话：「顶栏就是浏览器标签页切换；AI 打开浏览器后应自动在侧边栏注册/切到该面板，
+  // 人无需再点一下才符合语义。」随后澄清为：**收起状态下自动开窗（注册 tab），但不强制展开**
+  // —— 人手动展开时就能看见已经打开的浏览器界面。
+  //
+  // 0.14.1 块 D（已知 issue #1）修正两处**在源码里实证**的缺陷，判据与实现见
+  // `mobile/browser-auto-place.ts`（本处只做接线，不再内联策略）：
+  //  A. 落位必须绑定**发起动作的会话**（壳侧 `browserHostStatus().ownerSessionId`，且只在它与
+  //     `<html data-dsh-session-id>` 的当前会话一致时才动作）——读全局状态后调
+  //     `ctx.sidebarRight.openTab` 会落在**上屏/焦点会话**上（跨会话污染）。
+  //  B. 落位必须走**带会话的入口** `openTabIn(ownerSessionId, kind)`：`openTab` 内部第一条 op 是
+  //     `planSetExpanded(state, true)`（`ui-sidebar-right/src/client/stores.ts` 的 `openContent`），
+  //     收起态下调它必然强制展开。收起态一律只记 per-session `pending`。
+  ctx.effect(() => {
+    const placement = new BrowserAutoPlace({
+      kind: BROWSER_TAB_KIND,
+      status: () => window.androidBridge?.browserHostStatus?.(),
+      currentSessionId: domCurrentSessionId,
+      collapsed: domCollapsedNow,
+      sidebar: () => (ctx.get('sidebarRight') as BrowserSidebarFace | undefined),
+    })
+    return placement.attach()
+  }, 'ui-responsive: AI browser auto-place into right sidebar (session-addressed, deferred while collapsed)')
+
   // Mobile reference menu (apk #163): rows get a leading checkbox (multi-select) and a
   // directory row body drills in instead of referencing the folder; upstream keeps the
   // settle-pick for files and for the trailing chevron.
@@ -355,59 +448,79 @@ export function apply(ctx: ClientContext): void {
     }
   }, 'ui-responsive: export result dialog bridge')
 
-  // PRD F5 消费端（2026-08-23 补齐）：外部文件/图片 → 宿主 dsh-android-file-open 已创建
-  // 强制新会话（种子消息 = @文件路径 + 上下文）。本消费端轮询 GET /api/android/file-incoming，
-  // 对带 sessionId 的条目：自动切到该会话（绝不并入既有会话）→ claim 删除条目。
-  // 失败重试（会话可能尚未同步进客户端列表）；非安卓宿主无该端点时静默跳过。
+  // External open/share enters a blank temporary session with one normal file attachment draft.
+  // The host queue supplies only opaque metadata; this consumer claims and streams a source only
+  // after the session scope exists, then delegates attachment ownership to ui-conversation.
   ctx.effect(() => {
-    const opened = new Set<string>()
-    let busy = false
-    const poll = async (): Promise<void> => {
-      if (busy) return
-      busy = true
-      try {
-        // FX-205.6：插件侧端点自带鉴权（Host 白名单 + 控制令牌 / 上游浏览器会话），
-        // credentials 必须显式声明 same-origin（页面 cookie 是浏览器面的凭据）。
-        const r = await fetch('/api/android/file-incoming', { credentials: 'same-origin', cache: 'no-store' })
-        if (!r.ok) {
-          // 401/403 不再静默：否则「来件投递曾被静默 403」会以「什么都没发生」的形态复现。
-          if (r.status === 401 || r.status === 403) {
-            console.warn('[dsh-mobile] file-incoming unauthorized (HTTP ' + r.status + ')——来件消费已停')
-          }
-          return
-        }
-        const j = (await r.json().catch(() => null)) as { items?: Array<{ sessionId?: string; file?: string }> } | null
-        if (!j?.items) return
-        for (const item of j.items) {
-          if (!item.sessionId || opened.has(item.sessionId)) continue
+    document.documentElement.setAttribute('data-dsh-incoming-draft-consumer', 'active')
+    // Resolve the scoped service faces only at their actual operation. Cordis may install this
+    // extension before a root-scoped Conversation tracker is materialized; eager property reads
+    // would abort the effect and leave the incoming queue unpolled.
+    const sessions = (): IncomingSessionsFace => ctx.sessions as unknown as IncomingSessionsFace
+    const workspaces = (): IncomingWorkspacesFace => ctx.get('workspaces') as IncomingWorkspacesFace
+    const uiWorkspace = (): IncomingUiWorkspaceFace => ctx.get('uiWorkspace') as IncomingUiWorkspaceFace
+    const conversation = (): IncomingConversationFace => ctx.conversation as unknown as IncomingConversationFace
+    const consumer = new IncomingDraftConsumer(
+      (path, init) => fetch(path, init),
+      {
+        refreshSessions: () => sessions().refresh(),
+        createSession: async (cwd) => {
+          document.documentElement.setAttribute('data-dsh-incoming-draft-poll', 'workspace-create')
+          const workspace = await workspaces().create({ path: cwd })
+          document.documentElement.setAttribute('data-dsh-incoming-draft-poll', 'workspace-created')
+          document.documentElement.setAttribute('data-dsh-incoming-draft-poll', 'workspace-connect')
+          const sessionId = await uiWorkspace().connectWorkspace(workspace.workspaceId)
+          document.documentElement.setAttribute('data-dsh-incoming-draft-poll', 'workspace-connected')
+          return String(sessionId)
+        },
+        openSession: (sessionId) => { sessions().open(sessionId) },
+        sessionScope: (sessionId) => sessions().scope(sessionId),
+        attachGenericFile: (sessionId, file) => {
           try {
-            ctx.sessions.open(item.sessionId as never)
-            opened.add(item.sessionId)
-            void fetch('/api/android/file-incoming/claim', {
-              method: 'POST',
-              credentials: 'same-origin',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ file: item.file }),
-            }).catch(() => { /* claim 失败（条目已删/端点缺）不阻断 */ })
+            return conversation().addFiles(sessionId, [file])
           } catch {
-            /* 会话尚未同步进列表：下轮重试 */
+            // The target can be released between session navigation and draft admission.
+            return false
           }
-        }
-      } catch {
-        /* 端点不存在（桌面/非壳宿主）：静默 */
-      } finally {
-        busy = false
-      }
-    }
-    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void poll() }, 4000)
-    const onVisible = (): void => { if (document.visibilityState === 'visible') void poll() }
+        },
+        notify: (scope, text) => {
+          try { conversation().input.for(scope).notify('error', text) } catch { /* target scope ended */ }
+        },
+      },
+    )
+    const poll = (): void => { void consumer.poll() }
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') poll()
+    }, 4000)
+    const onVisible = (): void => { if (document.visibilityState === 'visible') poll() }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
-    void poll()
+    poll()
     return () => {
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onVisible)
+      document.documentElement.removeAttribute('data-dsh-incoming-draft-consumer')
     }
-  }, 'ui-responsive: file-incoming consumer (F5)')
+  }, 'ui-responsive: blank-session external attachment drafts')
+
+  /**
+   * 壳侧 → 页面的**通知落点**通道（0.14.1 批 4 / P0-1）。
+   *
+   * 为什么需要它：通知点击此前只是把应用拉到前台（壳侧一直在写 `dsh.notify.*` extras 而全仓没有
+   * 读取者，`MainActivity` 连 `onNewIntent` 都没有）——整族通知是单向公告板。会话视图与切换能力
+   * 只在页面里，故落点必须由页面执行：壳侧把会话 id 送进来，这里调会话服务的 `open(id)`。
+   *
+   * 契约（壳侧 `MainActivity.deliverNotifyRoute` 依此判成败）：**同步返回 boolean**
+   *   true  = 已切到该会话；false = 没找到（会话可能已被删除），壳侧据此给用户可见提示。
+   * 不把异常抛出去（抛出去会在桥层被吞成 undefined，壳侧就分不清「失败」与「未实现」）。
+   */
+  ctx.effect(() => {
+    const open = (sessionId: unknown): boolean =>
+      openSessionForNotify(ctx.sessions as unknown as SessionOpenFace, sessionId)
+    ;(window as unknown as Record<string, unknown>).__dshOpenSession = open
+    return () => {
+      delete (window as unknown as Record<string, unknown>).__dshOpenSession
+    }
+  }, 'ui-responsive: notification landing (openSession)')
 }

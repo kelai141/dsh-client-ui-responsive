@@ -26,6 +26,34 @@ export const DEV_SECTION_CSS: string = `
   align-items: center;
 }
 
+/* 并列半行宽按钮行（0.14.1 Shizuku 引导：左「下载」右「打开」）。
+ * 两侧等宽平分（flex: 1 1 0），窄屏 media query 里的 calc(50% - 5px) 被这条的
+ * 更高优先级覆盖——用户定例是「无论宽窄都并列半行」。
+ * 高度单列抬高到 44px：这两个按钮是「跳出去办一件事」，比本页其余按钮更需要点得准。 */
+.dsh-dev-split > .dsh-dev-btn {
+  flex: 1 1 0;
+  min-height: 44px;
+  text-align: center;
+}
+
+/* 文字链（0.14.1：蓝色下划线的「点击查看教程」）。
+ * 用 button 而非 a[href]：跳转由壳侧发起（外部浏览器），页面不导航；
+ * button 天然可键盘聚焦、可回车触发，且不会出现「点了页面自己跳走」。
+ * 颜色写显式品牌蓝，**不取 --dsw-alias-brand-primary**——该 token 深色主题下实测近白
+ * （与 reference-menu.ts 同一处理），会变成白底白字。 */
+.dsh-dev-link {
+  min-height: 40px;
+  padding: 8px 2px;
+  border: none;
+  background: none;
+  color: #4d6bfe;
+  font-size: 13px;
+  line-height: 20px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 .dsh-dev-btn {
   min-height: 36px;
   padding: 6px 14px;
@@ -103,6 +131,90 @@ export const DEV_SECTION_CSS: string = `
   margin: 0;
 }
 
+.dsh-screen-scope-row {
+  justify-content: space-between;
+  padding: 10px 0;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+.dsh-screen-scope-row > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+}
+.dsh-screen-scope-row small {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-screen-scope-row select {
+  min-height: 34px;
+  max-width: min(100%, 190px);
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.dsh-screen-control-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+.dsh-screen-control-header {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.dsh-screen-control-header > span:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+}
+.dsh-screen-control-header small {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-screen-control-state {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid var(--dsw-alias-border-l4);
+  border-radius: 999px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-screen-control-state[data-state='ready'],
+.dsh-screen-control-state[data-state='active'] {
+  border-color: var(--dsw-specific-primary);
+  color: var(--dsw-specific-primary);
+}
+.dsh-screen-control-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-screen-control-detail strong { color: var(--dsw-alias-label-primary); }
+
+.dsh-dev-error {
+  color: var(--dsw-specific-danger, #d33);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .dsh-dev-label {
   font-size: 14px;
   color: var(--dsw-alias-label-primary, #222);
@@ -136,6 +248,56 @@ export const DEV_SECTION_CSS: string = `
   color: var(--dsw-alias-danger-fg, #c0392b);
 }
 
+/* 0.14.1 块 E：运行时缓存清理块（清单行 + 跳过明细折叠）。标签一律为
+ * $DSH_HOME/$DSH_FILES_DIR 形态，绝不出现应用私有目录的绝对路径。 */
+.dsh-dev-cache {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l3, #e3e3e8);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2, #fafafa);
+}
+
+.dsh-dev-cache-list {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 180px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary, #666);
+  word-break: break-all;
+}
+
+/* 0.14.1 块J FIX-4：通知设置块（前台抑制 + 五类分类开关）。 */
+.dsh-dev-notify {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l3, #e3e3e8);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2, #fafafa);
+}
+
+.dsh-dev-notify-cats {
+  display: grid;
+  gap: 4px;
+}
+
+/* 每个分类开关 + 它的「关掉会怎样」说明（批 4 / P0-5：纯标签开关会让用户按旧语义做决定）。 */
+.dsh-dev-notify-cat {
+  display: grid;
+  gap: 2px;
+  padding: 4px 0;
+}
+
+.dsh-dev-notify-cat .dsh-dev-hint {
+  margin: 0 0 0 2px;
+}
+
 /* Dark-theme fallback (#43, 2026-08-18): in some environments --dsw-alias-bg-elevated is undefined
  * and falls back to #fff (white bg), while label-primary is white text in dark mode → white-on-white.
  * Provide explicit theme-consistent fallbacks for tokens that may not exist. */
@@ -165,6 +327,17 @@ export const DEV_SECTION_CSS: string = `
   .dsh-dev-modal-desc {
     color: var(--dsw-alias-label-secondary, #c9c9cf);
   }
+  .dsh-dev-cache {
+    background: var(--dsw-alias-bg-layer-2, #26262b);
+    border-color: var(--dsw-alias-border-l3, #3a3a42);
+  }
+  .dsh-dev-cache-list {
+    color: var(--dsw-alias-label-secondary, #c9c9cf);
+  }
+  .dsh-dev-notify {
+    background: var(--dsw-alias-bg-layer-2, #26262b);
+    border-color: var(--dsw-alias-border-l3, #3a3a42);
+  }
 }
 
 @media (max-width: 639px) {
@@ -172,5 +345,17 @@ export const DEV_SECTION_CSS: string = `
     flex: 1 1 calc(50% - 5px);
     text-align: center;
   }
+}
+
+/* 通知自检面（批 4）：每渠道一行「系统实际状态 + 直达系统设置」——此前这条信息零调用点。 */
+.dsh-dev-notify-check {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.dsh-dev-check-row {
+  align-items: center;
+  gap: 8px;
 }
 `

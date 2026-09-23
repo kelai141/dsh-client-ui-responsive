@@ -12,6 +12,7 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { chooserAvailable, openPathChooser } from './open-path.ts'
 import { sessionCwd } from './session-cwd.ts'
 import { reportUserFacingResult } from '../export-result.ts'
+import { describeCallReason } from '../user-copy.ts'
 import css from './OpenInFileManagerAction.module.css'
 
 /** Label used for both the accessible name and the tooltip. */
@@ -34,12 +35,12 @@ export function OpenInFileManagerAction({ sessionId, useSessions }: PropsRuntime
       onClick={() => {
         const result = openPathChooser(cwd, 'folder')
         if (!result.ok) {
+          // P3-1/P3-6：`reason` 只进 detail 的诊断尾部（`data-*` 不可用时由调用方日志兜底），
+          // 用户看到的正文一律由唯一真源翻译（旧文案把码直接印在括号里）。
           reportUserFacingResult({
             ok: false,
             title: '无法打开文件管理器',
-            detail: result.reason === 'no-handler'
-              ? '设备上没有可用的文件管理器应用。'
-              : `调用系统选择器失败（${result.reason ?? 'unknown'}）。`,
+            detail: describeCallReason(result.reason),
           })
         }
       }}

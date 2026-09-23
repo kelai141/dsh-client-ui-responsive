@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from 'react'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { BROWSER_PENDING_ATTR } from './browser-auto-place.ts'
 import css from './MobileChrome.module.css'
 
 /** Copy (the Android layer's product strings are Chinese; see DevSection/ExportResultDialog). */
@@ -72,8 +73,29 @@ function useSidebarOpen(): boolean {
  * @param props - runtime share (unused) and the injected toggle.
  * @returns the chrome, or the hidden shell when the phone form is off.
  */
+/**
+ * 观察「模型打开了浏览器标签但侧栏收起着」这个跨模块信号（S3-19）。
+ *
+ * 缺陷现场：侧栏收起时，模型打开浏览器对用户**完全静默**——`browser-auto-place` 只把意图记下来
+ * 等用户自己展开，屏上没有任何提示，用户根本不知道有东西在等。这里把它做成侧栏开关上的一个徽标：
+ * 位置就在用户要点的那个按钮上，点开即见。
+ * @returns true 表示当前有待展开的浏览器标签。
+ */
+function useBrowserPending(): boolean {
+  const [pending, setPending] = useState(false)
+  useEffect(() => {
+    const sync = (): void => { setPending(document.documentElement.hasAttribute(BROWSER_PENDING_ATTR)) }
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: [BROWSER_PENDING_ATTR] })
+    return () => { observer.disconnect() }
+  }, [])
+  return pending
+}
+
 export function MobileChrome({ toggleSidebar }: MobileChromeProps) {
   const open = useSidebarOpen()
+  const browserPending = useBrowserPending()
   return (
     <div className={css.root}>
       <div
@@ -86,14 +108,25 @@ export function MobileChrome({ toggleSidebar }: MobileChromeProps) {
         <button
           type="button"
           className={css.toggle}
-          aria-label={open ? TOGGLE_CLOSE : TOGGLE_OPEN}
+          aria-label={
+            browserPending && !open
+              ? TOGGLE_OPEN + '（有一个浏览器标签在等你展开侧栏）'
+              : (open ? TOGGLE_CLOSE : TOGGLE_OPEN)
+          }
           aria-expanded={open}
           onClick={() => { toggleSidebar() }}
         >
           <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
             <path d="M2.5 4.5h13M2.5 9h13M2.5 13.5h13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
           </svg>
+          {/* S3-19：侧栏收起时有待展开的浏览器标签 → 开关上给一个可见徽标（不只是 aria）。 */}
+          {browserPending && !open && <span className={css.badge} data-dsh-browser-badge="pending" aria-hidden="true" />}
         </button>
+        {browserPending && !open && (
+          <span className={css.pendingHint} data-dsh-browser-pending-hint="">
+            有浏览器标签待展开
+          </span>
+        )}
       </div>
     </div>
   )

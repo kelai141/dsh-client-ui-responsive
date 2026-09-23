@@ -11,6 +11,8 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { useShellState } from '../mobile/use-shell-state.ts'
+import { describeHttpFailure, noticeDataAttrs, type Notice } from '../user-copy.ts'
+import { RuntimeCacheRow } from './runtime-cache.tsx'
 import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls in the settings.section owner share (erased at build time, types only).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -32,9 +34,16 @@ function readOverlayEnabled(): boolean {
   }
 }
 
-const CONFIRM_TEXT: Record<'restart' | 'close', { title: string; desc: string; ok: string }> = {
+/**
+ * 破坏性/中断性操作的二次确认文案（0.14.1 批 9 / S3-14）。
+ *
+ * 为什么三处都要确认：同一页里「运行时缓存清理」原本有确认弹窗，而「一键清理临时工作区」
+ * 与「关闭」一样是**单击即执行**的破坏性操作——同一个页面里同级破坏力却有两种确认强度，
+ * 用户无法从外观预判哪一下会真的删东西（审查档 §3.3 第 14 行）。
+ */
+const CONFIRM_TEXT: Record<'restart' | 'close' | 'clean', { title: string; desc: string; ok: string }> = {
   restart: {
-    title: '重启 DeepSeek Harness？',
+    title: '重启 DeepCode？',
     desc: '将终止并自动重新启动本地引擎与页面（约数秒）。未发送的内容会保留在输入框。',
     ok: '重启',
   },
@@ -42,6 +51,12 @@ const CONFIRM_TEXT: Record<'restart' | 'close', { title: string; desc: string; o
     title: '关闭并回退到初始化界面？',
     desc: '将停止本地引擎并退出到初始化界面；引擎不会自动重启，需手动再次启动。',
     ok: '关闭',
+  },
+  clean: {
+    title: '清理临时工作区？',
+    desc: '将删除文件直达（分享进来）的临时文件；相关会话中的文件引用会失效，无法恢复。'
+      + '会话本身、附件、配置与凭据不受影响。',
+    ok: '清理',
   },
 }
 
@@ -65,6 +80,8 @@ export function DevSection({ renderSlot }: DevSectionProps) {
   const [overlayOn, refreshOverlay] = useShellState<boolean>(readOverlayEnabled)
   const [overlayMsg, setOverlayMsg] = useState<string | null>(null)
   const [restarting, setRestarting] = useState(false)
+  /** 重启/刷新等动作的失败回执（S3-15：旧实现在桥缺席时显示「重启中…」两秒后自己变回去）。 */
+  const [actionMsg, setActionMsg] = useState<Notice | null>(null)
   const [allFiles] = useShellState<boolean>(() => {
     try {
       return window.androidBridge?.hasAllFilesAccess?.() ?? false
@@ -72,18 +89,19 @@ export function DevSection({ renderSlot }: DevSectionProps) {
       return false
     }
   })
-  const [confirm, setConfirm] = useState<'restart' | 'close' | null>(null)
+  const [confirm, setConfirm] = useState<'restart' | 'close' | 'clean' | null>(null)
   // F5.1/D15（2026-08-23 补齐）：文件直达临时工作区占用 + 一键清理（R16 手动清理 + 占用展示）
   const [incomingBytes, setIncomingBytes] = useState<number | null>(null)
-  const [incomingMsg, setIncomingMsg] = useState<string | null>(null)
+  // 回执 = 人话正文 + 机器码；码只进 `data-http`（P3-1/P3-6）。
+  const [incomingMsg, setIncomingMsg] = useState<Notice | null>(null)
   const [cleaning, setCleaning] = useState(false)
 
   const refreshIncoming = useCallback(async () => {
     try {
       // FX-205.6：端点带插件侧鉴权——浏览器面凭据是 same-origin 会话 cookie，必须显式声明。
       const r = await fetch('/api/android/file-incoming', { credentials: 'same-origin', cache: 'no-store' })
-      if (r.status === 401 || r.status === 403) {
-        setIncomingMsg('未获授权（HTTP ' + r.status + '）——来件状态不可读')
+      if (!r.ok) {
+        setIncomingMsg({ text: describeHttpFailure('读取来件占用', r.status), http: r.status })
         return
       }
       if (r.ok) {
@@ -91,7 +109,7 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         setIncomingBytes(typeof j.bytes === 'number' ? j.bytes : null)
       }
     } catch {
-      /* 非安卓宿主：静默 */
+      /* 非安卓应用内（浏览器等）：静默 */
     }
   }, [])
 
@@ -118,15 +136,17 @@ export function DevSection({ renderSlot }: DevSectionProps) {
     setIncomingMsg(null)
     try {
       const r = await fetch('/api/android/file-incoming/clean', { method: 'POST', credentials: 'same-origin', cache: 'no-store' })
-      if (r.status === 401 || r.status === 403 || r.status === 405) {
-        setIncomingMsg('清理未获授权（HTTP ' + r.status + '）——仅限本机壳侧/已授权页面')
+      if (!r.ok) {
+        setIncomingMsg({ text: describeHttpFailure('清理临时工作区', r.status), http: r.status })
         return
       }
-      const j = (await r.json().catch(() => null)) as { ok?: boolean; removed?: number } | null
+      const j = (await r.json().catch(() => null)) as { ok?: boolean; removed?: number; reason?: string } | null
       // FX-205.5：清理范围收敛为「本工具自有临时项」，用户放入工作区的文件不再被删。
-      setIncomingMsg(j?.ok ? `已清理本工具临时项（${j.removed ?? 0} 项）——相关会话中的文件引用将失效` : '清理失败')
+      setIncomingMsg(j?.ok
+        ? { text: `已清理本工具临时项（${j.removed ?? 0} 项）——相关会话中的文件引用将失效` }
+        : { text: '清理未完成——请重试；仍失败可复制日志反馈', ...(j?.reason === undefined ? {} : { code: j.reason }) })
     } catch {
-      setIncomingMsg('清理请求失败（仅安卓宿主可用）')
+      setIncomingMsg({ text: '清理请求失败（仅安卓应用内有此能力）——请确认在本机应用内操作' })
     } finally {
       setCleaning(false)
       void refreshIncoming()
@@ -145,12 +165,20 @@ export function DevSection({ renderSlot }: DevSectionProps) {
 
   const doRestart = useCallback(() => {
     setConfirm(null)
-    setRestarting(true)
+    setActionMsg(null)
+    // S3-15：只有**真的发起了**重启才进入忙碌态；否则如实说没发起（旧实现无论成败都显示
+    // 「重启中…」并在 2s 后自己变回——那是「看起来在工作」的假忙碌，用户会以为重启过了）。
+    let started = false
     try {
-      window.androidBridge?.restartEngine?.()
+      started = window.androidBridge?.restartEngine?.() === true
     } catch {
-      /* bridge absent: nothing to do */
+      started = false
     }
+    if (!started) {
+      setActionMsg({ text: '重启没有发起：应用与页面的连接不可用，或已在重启中——请稍等几秒；仍无效请关闭并重新打开应用' })
+      return
+    }
+    setRestarting(true)
     window.setTimeout(() => setRestarting(false), 2000)
   }, [])
 
@@ -164,18 +192,28 @@ export function DevSection({ renderSlot }: DevSectionProps) {
   }, [])
 
   const reload = useCallback(() => {
+    setActionMsg(null)
     try {
-      window.androidBridge?.reloadWebUI?.()
+      if (window.androidBridge?.reloadWebUI === undefined) {
+        setActionMsg({ text: '刷新界面不可用：应用与页面的连接未装配——请关闭并重新打开应用' })
+        return
+      }
+      window.androidBridge.reloadWebUI()
     } catch {
-      /* bridge absent: nothing to do */
+      setActionMsg({ text: '刷新界面失败：应用与页面的连接不可用——请关闭并重新打开应用' })
     }
   }, [])
 
   const openConsole = useCallback(() => {
+    setActionMsg(null)
     try {
-      window.androidBridge?.openConsole?.()
+      if (window.androidBridge?.openConsole === undefined) {
+        setActionMsg({ text: '控制台不可用：应用与页面的连接未装配——请关闭并重新打开应用' })
+        return
+      }
+      window.androidBridge.openConsole()
     } catch {
-      /* bridge absent: nothing to do */
+      setActionMsg({ text: '控制台打开失败：应用与页面的连接不可用——请关闭并重新打开应用' })
     }
   }, [])
 
@@ -206,7 +244,7 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         setOverlayMsg('悬浮球已关闭')
       }
     } catch {
-      setOverlayMsg('桥不可用（仅安卓宿主支持悬浮球）')
+      setOverlayMsg('应用内连接不可用（悬浮球仅安卓应用内支持）——请重新打开应用后重试')
     }
   }, [refreshOverlay])
 
@@ -219,7 +257,7 @@ export function DevSection({ renderSlot }: DevSectionProps) {
       const j = JSON.parse(raw ?? '{}') as { ok?: boolean; path?: string; error?: string }
       setConfigMsg(j.ok ? `已导出到 ${j.path ?? 'exports/config/settings.yaml'}` : `导出失败：${j.error ?? '未知错误'}`)
     } catch {
-      setConfigMsg('导出失败：桥不可用（仅安卓宿主可用）')
+      setConfigMsg('导出失败：应用内连接不可用（仅安卓应用内可用）——请重新打开应用后重试')
     }
   }, [])
 
@@ -229,7 +267,7 @@ export function DevSection({ renderSlot }: DevSectionProps) {
       const j = JSON.parse(raw ?? '{}') as { ok?: boolean; hint?: string; error?: string }
       setConfigMsg(j.ok ? `已导入并生效（原配置备份为 settings.yaml.import-backup）。${j.hint ?? ''}` : `导入失败：${j.error ?? '未知错误'}`)
     } catch {
-      setConfigMsg('导入失败：桥不可用（仅安卓宿主可用）')
+      setConfigMsg('导入失败：应用内连接不可用（仅安卓应用内可用）——请重新打开应用后重试')
     }
   }, [])
 
@@ -247,10 +285,13 @@ export function DevSection({ renderSlot }: DevSectionProps) {
   return (
     <div data-plugin="dev-section" onKeyDown={onKeyDown}>
       <p className="dsh-dev-note">
-        Android 壳调试设施：控制台为快照内嵌 Termux bash；日志默认关闭。
+        DeepCode 开发者选项：控制台为运行时内嵌命令行；日志默认关闭。
       </p>
 
-      {/* 开发者选项子区（2026-08-23）：ADB 授权面板等设施经 settings.dev.item 挂载 */}
+      {/* 0.14.0：屏幕/Shizuku/虚拟屏/浮窗/无障碍/强制销毁已迁到独立「手机控制」设置页。 */}
+
+      {/* Legacy ADB diagnostic controls remain below the user-facing Shizuku/screen surface until
+          the hard-cut migration is verified. */}
       {renderSlot?.('settings.dev.item', {})}
 
       <div className="dsh-dev-row">
@@ -262,6 +303,8 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         <button type="button" className="dsh-dev-btn" onClick={openConsole}>打开控制台</button>
       </div>
 
+      {actionMsg !== null && <p className="dsh-dev-warn" {...noticeDataAttrs(actionMsg)}>{actionMsg.text}</p>}
+
       <label className="dsh-dev-row dsh-dev-switch">
         <input
           type="checkbox"
@@ -271,15 +314,21 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         <span>开发者调试日志</span>
       </label>
 
-      {/* 0.13.2 W7：悬浮球（实时工具流 + 停止） */}
+      {/* 0.13.2 W7：悬浮球（实时工具流 + 停止）。
+          P5-6：与「手机控制」页的虚拟屏浮窗去混淆——旧文案两处都只说「浮窗/浮球」，
+          用户分不清哪个是任务面板入口、哪个是虚拟屏画面。此处点名各自是什么。 */}
       <label className="dsh-dev-row dsh-dev-switch">
         <input
           type="checkbox"
           checked={overlayOn}
           onChange={(e) => toggleOverlay(e.target.checked)}
         />
-        <span>悬浮球（实时查看 AI 工作，可一键停止）</span>
+        <span>悬浮球（任意界面可见的任务面板入口）</span>
       </label>
+      <p className="dsh-dev-hint">
+        屏幕上的圆球：点开可看实时工具调用、可一键停止。与「手机控制」页的「虚拟屏浮窗」
+        （退后台显示虚拟屏画面）是两个不同的东西。
+      </p>
       {overlayMsg !== null && <p className="dsh-dev-hint">{overlayMsg}</p>}
 
       {/* 0.13.1 W4：配置导入/导出（安全手改通道；引擎读私有目录，改共享目录副本无效） */}
@@ -293,18 +342,31 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         配置不含 API 密钥（密钥在应用私有目录，不随导出泄漏）。
       </p>
 
+      {/* 0.14.1 块 E（详档 §4.3）：运行时缓存清理——白名单制、先给可回收体积再执行、逐项落审计。 */}
+      <RuntimeCacheRow />
+
+      {/* 0.14.1 批 3（P3-5）：通知设置已从开发者选项**提级**为设置页一级分区「通知」。
+          这里只留指路（同功能双实现是审查档 §5 的结构性根因，故不重复渲染同一组开关）。 */}
+      <p className="dsh-dev-hint">通知的提醒方式（含「关掉提问提醒会发生什么」）在「设置 → 通知」里。</p>
+
       {/* F5.1/D15：文件直达临时工作区（占用展示 + 一键清理；PRD R16 手动清理 + 占用展示） */}
       {incomingBytes !== null && (
         <div className="dsh-dev-row">
           <span>
             文件直达临时工作区占用：{fmtBytes(incomingBytes)}
           </span>
-          <button type="button" className="dsh-dev-btn dsh-dev-danger" disabled={cleaning || incomingBytes === 0} onClick={() => void cleanIncoming()}>
+          {/* S3-14：破坏性操作一律先确认（旧实现单击即删，与同页「运行时缓存清理」的二次确认不一致）。 */}
+          <button
+            type="button"
+            className="dsh-dev-btn dsh-dev-danger"
+            disabled={cleaning || incomingBytes === 0}
+            onClick={() => { setConfirm('clean') }}
+          >
             {cleaning ? '清理中…' : '一键清理'}
           </button>
         </div>
       )}
-      {incomingMsg !== null && <p className="dsh-dev-hint">{incomingMsg}</p>}
+      {incomingMsg !== null && <p className="dsh-dev-hint" {...noticeDataAttrs(incomingMsg)}>{incomingMsg.text}</p>}
       <p className="dsh-dev-hint">清理会删除临时工作区内的外部文件；相关会话中的文件引用将失效（D15：纯手动清理，无自动清理）。</p>
       <p className="dsh-dev-hint">{logPathHint}</p>
       <p className="dsh-dev-warn">日志包含命令与模型内容，仅用于排查，请及时清理。</p>
@@ -333,8 +395,14 @@ export function DevSection({ renderSlot }: DevSectionProps) {
               >取消</button>
               <button
                 type="button"
-                className={confirm === 'close' ? 'dsh-dev-btn dsh-dev-danger' : 'dsh-dev-btn'}
-                onClick={confirm === 'restart' ? doRestart : doClose}
+                className={confirm === 'restart' ? 'dsh-dev-btn' : 'dsh-dev-btn dsh-dev-danger'}
+                onClick={() => {
+                  const which = confirm
+                  setConfirm(null)
+                  if (which === 'restart') doRestart()
+                  else if (which === 'close') doClose()
+                  else void cleanIncoming()
+                }}
               >{CONFIRM_TEXT[confirm].ok}</button>
             </div>
           </div>

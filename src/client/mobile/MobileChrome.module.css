@@ -37,6 +37,8 @@
     align-items: center;
     justify-content: center;
     flex: none;
+    /* S3-19：徽标用绝对定位挂在这个按钮上（收起态提示「有浏览器标签待展开」）。 */
+    position: relative;
     width: 44px;
     height: 44px;
     border: none;
@@ -76,3 +78,24 @@
     transition: none;
   }
 }
+.badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dsw-alias-brand-primary, #3d6df0);
+  pointer-events: none;
+}
+
+/* S3-19：侧栏收起时提示「有浏览器标签待展开」——不给文字的话用户完全不知道有东西在等。 */
+.pendingHint {
+  align-self: center;
+  margin-left: 6px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--dsw-alias-text-2);
+  white-space: nowrap;
+}
+

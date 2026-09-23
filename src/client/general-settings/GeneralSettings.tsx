@@ -19,7 +19,7 @@
  * ST-09: the read goes through useShellState (mount + visible/foreground
  * re-read + write-then-read-back), never a one-shot bridge read.
  */
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { useShellState } from '../mobile/use-shell-state.ts'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls in the settings.section owner share (erased at build time, types only).
@@ -53,27 +53,45 @@ function readImmersive(): boolean {
 }
 
 /**
- * Render the Android general-settings rows (immersive toggle).
+ * Render the Android general-settings rows (immersive and screen scope).
  * @param props - composed slot props (contract/slots.ts).
  * @returns the section element tree.
  */
 export function GeneralSettings(_props: GeneralSettingsProps) {
   // ST-09：设置页这一处也走 useShellState（挂载 + 可见/回前台重读）；ST-10：真源是壳桥。
   const [immersive, refreshImmersive] = useShellState<boolean>(readImmersive)
+  /** 写失败回执（S3-17：本项是设置页里唯一**没有**失败反馈路径的开关）。 */
+  const [notice, setNotice] = useState<string | null>(null)
 
   const toggleImmersive = useCallback((enabled: boolean) => {
+    setNotice(null)
     try {
       localStorage.setItem(IMMERSIVE_KEY, enabled ? '1' : '0')
     } catch {
       /* storage unavailable: still push to the shell */
     }
-    try {
-      window.androidBridge?.setImmersiveMode?.(enabled)
-    } catch {
-      /* bridge absent: desktop fallback no-op */
+    if (window.androidBridge?.setImmersiveMode === undefined) {
+      // 桌面/旧壳没有这个桥：localStorage 镜像就是本机真值，不算失败（本页是它的唯一写入者）。
+      refreshImmersive()
+      return
     }
-    // 写后回读：展示值 = 壳侧真值（ShellState.ImmersiveMode），不做乐观置位
+    try {
+      window.androidBridge.setImmersiveMode(enabled)
+    } catch {
+      setNotice('设置没有生效：应用与页面的连接不可用——请重新打开应用后再试。')
+      refreshImmersive()
+      return
+    }
+    // 写后回读：展示值一律取壳侧真值；**读回与请求不一致时如实说明**（旧实现默默回弹，
+    // 用户以为点了没反应）。
     refreshImmersive()
+    if (readImmersive() !== enabled) {
+      setNotice(
+        enabled
+          ? '沉浸式状态栏没有开启：系统或应用未接受本次设置——可到系统设置里检查本应用的显示权限。'
+          : '沉浸式状态栏没有关闭：系统或应用未接受本次设置——请重试，或重新打开应用。',
+      )
+    }
   }, [refreshImmersive])
 
   return (
@@ -87,6 +105,7 @@ export function GeneralSettings(_props: GeneralSettingsProps) {
         <span>沉浸式状态栏</span>
       </label>
       <p className="dsh-dev-hint">常态隐藏系统状态栏，边缘滑动临时呼出；关闭后常驻显示。</p>
+      {notice !== null && <p className="dsh-dev-warn">{notice}</p>}
     </div>
   )
 }
