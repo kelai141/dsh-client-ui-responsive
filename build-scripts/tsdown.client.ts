@@ -251,7 +251,11 @@ function clientConfig(id: string, entry: string): UserConfig {
           minify: true,
         })
         const classMap: Record<string, string> = {}
-        for (const [local, exp] of Object.entries(cssExports ?? {})) classMap[local] = exp.name
+        // lightningcss 的 exports 顺序由进程内哈希表迭代决定（每次构建都不同），
+        // 若原样写进默认导出，client.js 的字节就不可复现 —— 会同时打破 issue #26 的
+        // 逐字节镜像门禁与 combo 缓存门禁（缓存按 sha256(client.js) 查构建期条目）。
+        // 按 local 名排序后输出，保证同一输入产出同一份字节。
+        for (const [local, exp] of Object.entries(cssExports ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) classMap[local] = exp.name
         // One <style data-plugin> per module file; idempotent under re-evaluation.
         return [
           `const css = ${JSON.stringify(code.toString())};`,
