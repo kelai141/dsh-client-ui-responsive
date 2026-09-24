@@ -172,6 +172,7 @@ export function browserTabDefinition(): SidebarRightTabDefinition {
     priority: 'extension',
     title: () => 'AI 浏览器',
     guide: [{
+      id: 'new',
       order: 20,
       title: () => 'AI 浏览器',
       description: () => '在右侧栏打开一个独立、隔离的浏览器工作台。',
