@@ -254,6 +254,81 @@ describe('PhoneControlSection（手机控制设置页）', () => {
     expect(el.textContent).toContain('已打开 Shizuku 发布页')
   })
 
+  // ── Shizuku 区块：重置链接（0.14.2 P1，用户现场「重启 App 也不行」）──────────
+
+  it('「重置链接」与「刷新状态」同一行，并且真的调壳桥 resetShizukuConnection', async () => {
+    const resetShizukuConnection = vi.fn(() => shizukuJson({ bound: false, binding: false, code: 'shizuku-user-service-reset' }))
+    const el = await render({ shizukuStatus: () => shizukuJson(), resetShizukuConnection })
+    const reset = buttonByText(el, '重置链接')
+    const refresh = buttonByText(el, '刷新状态')
+    // 同一行：两者父节点相同（「与刷新状态并列，都是非破坏性」）。
+    expect(reset.parentElement).toBe(refresh.parentElement)
+    await act(async () => { reset.click() })
+    expect(resetShizukuConnection).toHaveBeenCalledTimes(1)
+    // 即时回执必须说清「做了什么 + 现在什么态 + 谁来收敛」（三态诚实，不过度承诺）。
+    expect(el.textContent).toContain('已重置 Shizuku 连接')
+    expect(el.textContent).toContain('正在重新建立通道')
+    expect(el.textContent).toContain('每 2 秒自动重扫')
+  })
+
+  it('重置成功立即回读一次状态（不靠等下一拍轮询）', async () => {
+    const resetShizukuConnection = vi.fn(() => shizukuJson({ bound: false, code: 'shizuku-user-service-reset' }))
+    const shizukuStatus = vi.fn(() => shizukuJson())
+    const el = await render({ shizukuStatus, resetShizukuConnection })
+    const before = shizukuStatus.mock.calls.length
+    await act(async () => { buttonByText(el, '重置链接').click() })
+    expect(shizukuStatus.mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it('重置失败如实报原因与下一步，不静默也不把机器码印进正文（P3-1/P3-6）', async () => {
+    const resetShizukuConnection = vi.fn(() => JSON.stringify({ ok: false, reason: 'not-installed' }))
+    const el = await render({ shizukuStatus: () => shizukuJson(), resetShizukuConnection })
+    await act(async () => { buttonByText(el, '重置链接').click() })
+    expect(el.textContent).toContain('重置 Shizuku 连接失败')
+    expect(el.textContent).toContain('下载 Shizuku')
+    expect(el.textContent).not.toContain('not-installed')
+  })
+
+  it('反证：壳桥抛错时必须给人话，不得冒泡也不得静默', async () => {
+    const resetShizukuConnection = vi.fn(() => { throw new Error('bridge down') })
+    const el = await render({ shizukuStatus: () => shizukuJson(), resetShizukuConnection })
+    await act(async () => { buttonByText(el, '重置链接').click() })
+    // 抛错 => raw 为 undefined => settleLinkCall 走失败支（原因未登记 -> 兜底人话）。
+    expect(el.textContent).toContain('重置 Shizuku 连接失败')
+  })
+
+  it('反证：旧壳没有 resetShizukuConnection 时按钮必须在场且点了给人话（不得点了没反应）', async () => {
+    const el = await render({ shizukuStatus: () => shizukuJson() })
+    const reset = buttonByText(el, '重置链接')
+    await act(async () => { reset.click() })
+    expect(el.textContent).toContain('重置 Shizuku 连接失败')
+  })
+
+  it('反证：重置不得新开定时器（新增常驻轮询与 T1 的 CPU 前科同族）', async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+    const el = await render({
+      shizukuStatus: () => shizukuJson(),
+      resetShizukuConnection: vi.fn(() => shizukuJson({ bound: false })),
+    })
+    const baselineIntervals = setIntervalSpy.mock.calls.length
+    const baselineTimeouts = setTimeoutSpy.mock.calls.length
+    await act(async () => { buttonByText(el, '重置链接').click() })
+    expect(setIntervalSpy.mock.calls.length, '重置不得新增常驻轮询').toBe(baselineIntervals)
+    expect(setTimeoutSpy.mock.calls.length, '重置不得新增定时器').toBe(baselineTimeouts)
+  })
+
+  it('反证：重置成功也不能写成「一定能修好」这类过度承诺', async () => {
+    const el = await render({
+      shizukuStatus: () => shizukuJson(),
+      resetShizukuConnection: vi.fn(() => shizukuJson({ bound: false })),
+    })
+    await act(async () => { buttonByText(el, '重置链接').click() })
+    const text = el.textContent ?? ''
+    for (const overPromise of ['一定能', '必定', '保证修好', '一定修好']) {
+      expect(text, '不得出现过度承诺词: ' + overPromise).not.toContain(overPromise)
+    }
+  })
   it('「点击查看教程」是外链 key=shizuku-tutorial，且样式为蓝字下划线', async () => {
     const openExternalLink = vi.fn(() => JSON.stringify({ ok: true }))
     const el = await render({ shizukuStatus: () => shizukuJson(), openExternalLink })

@@ -90,11 +90,11 @@ export const REFERENCE_BAR_CSS: string = `
   justify-content: space-between;
   padding: 8px 12px;
   border-top: 1px solid var(--dsw-alias-border-l1, #e5e5e5);
-  background: var(--dsw-alias-bg-l1, #ffffff);
+  background: var(--dsw-alias-bg-layer-2, #ffffff);
 }
 [data-dsh-ref-bar-count] {
   font-size: 13px;
-  color: var(--dsw-alias-text-l2, #5f6368);
+  color: var(--dsw-alias-label-secondary, #5f6368);
 }
 [data-dsh-ref-add] {
   padding: 6px 14px;
@@ -111,9 +111,9 @@ export const REFERENCE_BAR_CSS: string = `
   [data-dsh-ref-check] { border-color: #6b7075; }
   [data-dsh-ref-bar] {
     border-top-color: var(--dsw-alias-border-l1, #2a2b30);
-    background: var(--dsw-alias-bg-l1, #17181c);
+    background: var(--dsw-alias-bg-layer-2, #17181c);
   }
-  [data-dsh-ref-bar-count] { color: var(--dsw-alias-text-l2, #9aa0a6); }
+  [data-dsh-ref-bar-count] { color: var(--dsw-alias-label-secondary, #9aa0a6); }
 }
 `
 
@@ -279,9 +279,9 @@ export class ReferenceMenuEnhancer {
     set(bar, 'justify-content', 'space-between')
     set(bar, 'padding', '8px 12px')
     set(bar, 'border-top', '1px solid var(--dsw-alias-border-l1, ' + (dark ? '#2a2b30' : '#e5e5e5') + ')')
-    set(bar, 'background', 'var(--dsw-alias-bg-l1, ' + (dark ? '#17181c' : '#ffffff') + ')')
+    set(bar, 'background', 'var(--dsw-alias-bg-layer-2, ' + (dark ? '#17181c' : '#ffffff') + ')')
     set(count, 'font-size', '13px')
-    set(count, 'color', 'var(--dsw-alias-text-l2, ' + (dark ? '#9aa0a6' : '#5f6368') + ')')
+    set(count, 'color', 'var(--dsw-alias-label-secondary, ' + (dark ? '#9aa0a6' : '#5f6368') + ')')
     set(add, 'background-color', BRAND)
     set(add, 'background-image', 'none')
     set(add, 'color', '#ffffff')

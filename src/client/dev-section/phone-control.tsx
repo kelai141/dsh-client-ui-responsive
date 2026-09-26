@@ -341,6 +341,26 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
     )
   }, [runShizukuAction])
 
+  /**
+   * 「重置链接」：强制移除 Shizuku 侧 UserService 并清空绑定态。
+   *
+   * 与「刷新状态」同一行（都是非破坏性只读/自愈动作），结算沿用既有 [runShizukuAction] →
+   * [settleLinkCall]，**不新造结算口径**：壳侧回 {ok, code/guidance}，ok=false 走失败支并把人话原因说清。
+   *
+   * 「持续扫描链接」= 既有的 2 秒轮询（[runShizukuAction] 内部已调 refreshShizuku 立刻回读一次，
+   * 之后交给 useShellState 的 2s 轮询自然收敛）。**不新开定时器**：新增常驻轮询=新增常驻 CPU，
+   * 与 T1（dsh-model-capability 每 5s 全量 describe 造成 24-26% CPU）同族，明确禁止。
+   */
+  const resetShizuku = useCallback(() => {
+    runShizukuAction(
+      window.androidBridge?.resetShizukuConnection
+        ? () => window.androidBridge!.resetShizukuConnection!()
+        : undefined,
+      '已重置 Shizuku 连接，正在重新建立通道（本页每 2 秒自动重扫）。',
+      '重置 Shizuku 连接失败',
+    )
+  }, [runShizukuAction])
+
   const tapForce = useCallback(() => {
     const next = confirmStage + 1
     if (next < 3) {
@@ -424,6 +444,7 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
       <div className="dsh-dev-row">
         <button type="button" className="dsh-dev-link" onClick={tutorialShizuku}>点击查看教程</button>
         <button type="button" className="dsh-dev-btn" onClick={refreshShizuku}>刷新状态</button>
+        <button type="button" className="dsh-dev-btn" onClick={resetShizuku}>重置链接</button>
       </div>
       {shizukuMsg === null ? null : (
         <p className={shizukuOk === true ? 'dsh-dev-hint' : 'dsh-dev-error'}>{shizukuMsg}</p>

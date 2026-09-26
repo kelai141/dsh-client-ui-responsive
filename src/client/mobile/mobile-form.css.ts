@@ -50,22 +50,42 @@ export const MOBILE_FORM_CSS: string = `
   }
 
   /* The settings overlay renders inside the sidebar subtree: a translated
-     (off-canvas) ancestor would carry it off-screen. While any modal outside
-     the frame's own overlay layer is up, the drawer stays on screen. */
-  html[data-dsh-modal-open] [data-dsh-frame] > [class*='sidebarCol'] {
+     (off-canvas) ancestor would carry it off-screen (a transformed ancestor
+     becomes the containing block of its fixed-position descendants). The
+     drawer therefore stays on screen while the settings panel is up.
+
+     Only the settings panel may pin it. Keying this on the coarse
+     data-dsh-modal-open attribute flattened the drawer for every body-level
+     aria-modal dialog (session rename, permission risk confirmation, image
+     lightbox). data-dsh-settings-open is the settings-only fact published on
+     the root by form-marker.ts, so this stays a plain ancestor match with no
+     :has() requirement. */
+  html[data-dsh-settings-open] [data-dsh-frame] > [class*='sidebarCol'] {
     transform: none;
   }
 
+  /* Both in-flow columns take the explicit first row. The frame's track widths
+     are inline styles and upstream declares a single 100% row; a right column
+     left on auto-placement lands in an implicit second row (0px tall) and the
+     frame's overflow:hidden clips the whole right panel -- toggle, tabs and
+     corner expand key included -- out of the viewport. The centre column joins
+     it so no second row is materialised at all. */
   [data-dsh-frame] > [class*='centerCol'] {
     grid-column: 1 / -1;
+    grid-row: 1;
     padding-top: calc(var(--dsh-mobile-topbar-height) + var(--dsh-mobile-top-inset, 0px));
   }
 
   [data-dsh-frame] > [class*='rightbarCol'] {
     grid-column: 3;
+    grid-row: 1;
   }
 
-  [data-dsh-frame] [class*='handle'] {
+  /* Anchored on upstream's own attribute: CSS attribute-substring matching is
+     case-sensitive and the real class is widthHandle (capital H), so a
+     [class*=handle] selector matches nothing and the desktop drag handles
+     stayed live on a phone. */
+  [data-dsh-frame] [data-width-handle] {
     display: none;
   }
 

@@ -1,14 +1,36 @@
 /**
- * Composer attachment-source chooser.
+ * Composer attachment-source chooser (D2/D4, 2026-09-25).
  *
- * The upstream InputBar owns exactly one hidden multiple-file input and its existing addFiles/upload
- * admission path. This enhancer intercepts only the immediately preceding paperclip button, presents
- * a small upward menu, temporarily sets the same input's accept filter, and clicks it in the menu
- * item's user gesture. No second bridge, input, upload state, or attachment rail is introduced.
+ * Upstream 0.1.7-rc.1 has NO dedicated paperclip. The only composer button is the command "+"
+ * (InputBar.tsx:419-431: aria-label t('input.commands') = "添加文件或调用指令",
+ * aria-haspopup="listbox", onClick=onToggleCommandMenu) and the hidden multiple-file input is its
+ * own row sibling. The previous revision claimed "the last BUTTON before the hidden input" as the
+ * paperclip, so it claimed that "+": preventDefault + stopImmediatePropagation on the capture phase
+ * swallowed onToggleCommandMenu, the command menu never opened, and the user saw "the paperclip is
+ * gone and + uploads the file" (D4). The structural pairing itself is the defect, not its lookup.
+ *
+ * The enhancer now owns its own control and claims no upstream button at all:
+ * - a paperclip button is mounted INTO the standard 'conversation.input.left' slot anchor
+ *   ('[data-slot="conversation.input.left"]'). The anchor renders with 'display: contents', so the
+ *   button becomes a flex item of the same '.tools' toolbar at the slot's own seat, after the
+ *   permission/plan seats - the upstream InputBar is not modified and nothing is inserted into its
+ *   private '.tools' structure;
+ * - only that button opens the menu (its own click listener). No other button is intercepted, so the
+ *   upstream "+" keeps its own onClick by construction;
+ * - a chosen source is still delegated to InputBar's existing hidden multiple-file input: the menu
+ *   item sets that input's accept filter inside its own user gesture, clicks it, then restores the
+ *   filter. No second bridge, input, upload state, or attachment rail is introduced.
+ *
+ * Mounting is best-effort. The composer card may not exist yet (boot order) and the anchor comes and
+ * goes with the session; a failure to mount must never propagate into the plugin body, because that
+ * body is the phone runtime the user asked to keep alive.
  */
 const MENU_ATTR = 'data-dsh-attachment-picker-menu'
 const ITEM_ATTR = 'data-dsh-attachment-picker-item'
-const PAPERCLIP_ATTR = 'data-dsh-attachment-picker-trigger'
+const TRIGGER_ATTR = 'data-dsh-attachment-picker-trigger'
+/** The standard upstream slot seat for extra composer-left controls. */
+const SLOT_SELECTOR = '[data-slot="conversation.input.left"]'
+const CARD_SELECTOR = '[data-composer-card]'
 
 type PickerKind = 'file' | 'image'
 
@@ -25,59 +47,18 @@ function copyForDocument(): PickerCopy {
 }
 
 /**
- * The button that immediately precedes `input` inside its own row — i.e. the paperclip the upstream
- * InputBar wired to that input.
+ * The hidden multiple-file input the upstream InputBar wired its own admission path to.
  *
- * Why document order rather than `previousElementSibling`: the Tooltip primitive injects its bubble
- * `<span role="tooltip">` between the paperclip and the input, so "previous element" is the bubble,
- * not the button. Scanning for the nearest preceding BUTTON skips every injected span.
+ * Card-scoped on purpose: the enhancer no longer derives a button from the input (that derivation is
+ * what claimed the "+"), it derives the input from our own trigger's composer card. The card holds
+ * exactly one such input (InputBar.tsx:433-440), and a second one would be an upstream change the
+ * attachment flow has to re-review anyway.
  */
-/**
- * The button that immediately precedes `input` inside its own row — i.e. the paperclip the upstream
- * InputBar wired to that input.
- *
- * Why document order rather than `previousElementSibling`: the Tooltip primitive injects its bubble
- * `<span role="tooltip">` between the paperclip and the input, so "previous element" is the bubble,
- * not the button. Scanning for the nearest preceding BUTTON skips every injected span.
- */
-function ownerButtonFor(input: HTMLInputElement): HTMLButtonElement | null {
-  const siblings = input.parentElement?.children
-  if (siblings === undefined) return null
-  let candidate: HTMLButtonElement | null = null
-  for (const child of Array.from(siblings)) {
-    if (child === input) break
-    if (child instanceof HTMLButtonElement) candidate = child
-  }
-  return candidate
+function hiddenFileInputIn(button: HTMLButtonElement): HTMLInputElement | null {
+  return button.closest(CARD_SELECTOR)?.querySelector<HTMLInputElement>('input[type="file"][multiple]') ?? null
 }
 
-/**
- * Resolve the paperclip/input pair structurally, not by sibling adjacency.
- *
- * Regression evidence (emulator CDP, 2026-09-18): the Tooltip bubble lands between the paperclip and
- * the input as soon as the pointer hovers, so a `nextElementSibling` lookup silently returns null.
- * The enhancer then never claimed the click, the event bubbled to the upstream button, and the raw
- * picker opened directly — the user-visible "tap the paperclip twice" defect. Sibling order is not
- * part of the upstream contract; "this row owns one hidden multiple-file input, and this button is
- * the one wired to it" is.
- */
-function paperclipInput(button: HTMLButtonElement): HTMLInputElement | null {
-  const rowInput = button.parentElement?.querySelector<HTMLInputElement>('input[type="file"][multiple]') ?? null
-  if (rowInput !== null && ownerButtonFor(rowInput) === button) return rowInput
-  // Older renders wrapped the button; fall back to the enclosing card, still requiring that the
-  // input actually belongs to this button so the neighbouring command-plus is never claimed.
-  const card = button.closest('[data-composer-card]')
-  const cardInput = card?.querySelector<HTMLInputElement>('input[type="file"][multiple]') ?? null
-  return cardInput !== null && ownerButtonFor(cardInput) === button ? cardInput : null
-}
-
-function pickerTrigger(target: EventTarget | null): HTMLButtonElement | null {
-  if (!(target instanceof Element)) return null
-  const button = target.closest<HTMLButtonElement>('[data-composer-card] button')
-  if (button === null || button.disabled) return null
-  return paperclipInput(button) === null ? null : button
-}
-
+/** Glyph for one menu row. */
 function icon(kind: PickerKind): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('viewBox', '0 0 20 20')
@@ -97,20 +78,36 @@ function icon(kind: PickerKind): SVGSVGElement {
   return svg
 }
 
-/** Owns the short-lived menu and delegates every selected file to InputBar's existing input. */
+/** Paperclip glyph for our own trigger (the "+" glyph belongs to upstream and stays there). */
+function paperclipIcon(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 20 20')
+  svg.setAttribute('width', '16')
+  svg.setAttribute('height', '16')
+  svg.setAttribute('aria-hidden', 'true')
+  svg.setAttribute('fill', 'none')
+  svg.setAttribute('stroke', 'currentColor')
+  svg.setAttribute('stroke-width', '1.6')
+  svg.setAttribute('stroke-linecap', 'round')
+  svg.setAttribute('stroke-linejoin', 'round')
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('d', 'M12.9 5.2 7 11.1a1.6 1.6 0 0 0 2.26 2.26l6.32-6.32a3.3 3.3 0 0 0-4.67-4.67L4.4 8.86a4.9 4.9 0 0 0 6.93 6.93l5.2-5.2')
+  svg.appendChild(path)
+  return svg
+}
+
+/**
+ * Owns the paperclip trigger, the short-lived source menu, and the delegation to InputBar's input.
+ */
 export class AttachmentPickerMenuEnhancer {
   private menu: HTMLElement | null = null
   private trigger: HTMLButtonElement | null = null
   private restoreActivePicker: (() => void) | null = null
-
-  private readonly onClickCapture = (event: MouseEvent): void => {
-    const button = pickerTrigger(event.target)
-    if (button === null) return
-    event.preventDefault()
-    event.stopImmediatePropagation()
-    event.stopPropagation()
-    this.open(button)
-  }
+  private observer: MutationObserver | null = null
+  private mountScheduled = false
+  private attached = false
+  /** Triggers this enhancer mounted, with the anchor each was appended to. */
+  private readonly mounted: { anchor: HTMLElement, trigger: HTMLButtonElement }[] = []
 
   private readonly onPointerDown = (event: PointerEvent): void => {
     if (this.menu === null || !(event.target instanceof Node)) return
@@ -130,28 +127,137 @@ export class AttachmentPickerMenuEnhancer {
   }
 
   attach(): void {
-    document.addEventListener('click', this.onClickCapture, true)
-    document.addEventListener('pointerdown', this.onPointerDown, true)
-    document.addEventListener('keydown', this.onKeyDown, true)
-    window.addEventListener('resize', this.onViewportChange)
-    window.addEventListener('scroll', this.onViewportChange, true)
+    if (this.attached) return
+    this.attached = true
+    try {
+      document.addEventListener('pointerdown', this.onPointerDown, true)
+      document.addEventListener('keydown', this.onKeyDown, true)
+      window.addEventListener('resize', this.onViewportChange)
+      window.addEventListener('scroll', this.onViewportChange, true)
+      // The anchor is mounted by the upstream slot outlet and is re-created whenever the composer
+      // remounts (session switch, hero <-> dock). The observer only schedules work for mutations that
+      // can actually change the mount set (a slot anchor appearing, or one of our anchors leaving the
+      // DOM): an unconditional pass would run a document-wide query on every streaming render batch,
+      // which is the per-frame work this plugin elsewhere avoids (browser-tab publishBounds).
+      this.observer = new MutationObserver((records) => { this.onMutations(records) })
+      this.observer.observe(document.documentElement, { childList: true, subtree: true })
+      this.syncMounts()
+    } catch (error) {
+      // Phone-runtime guard: mounting a convenience control must never abort the plugin body.
+      console.warn('[dsh-attachment-picker] attach failed; composer stays usable without the paperclip', error)
+    }
   }
 
   detach(): void {
-    document.removeEventListener('click', this.onClickCapture, true)
+    if (!this.attached) return
+    this.attached = false
     document.removeEventListener('pointerdown', this.onPointerDown, true)
     document.removeEventListener('keydown', this.onKeyDown, true)
     window.removeEventListener('resize', this.onViewportChange)
     window.removeEventListener('scroll', this.onViewportChange, true)
-    this.restoreActivePicker?.()
+    this.observer?.disconnect()
+    this.observer = null
+    this.mountScheduled = false
     this.close()
+    for (const entry of this.mounted) entry.trigger.remove()
+    this.mounted.length = 0
+    this.restoreActivePicker?.()
   }
 
-  private open(button: HTMLButtonElement): void {
+  /**
+   * Whether a tracked anchor or trigger left the DOM.
+   *
+   * Deliberately false while nothing is mounted: "no anchor seen yet" is answered by the cheap
+   * added-node probe in onMutations, so an enhancer that has not mounted (no composer yet) does not
+   * run a document-wide query on every unrelated mutation batch.
+   */
+  private mountSetDirty(): boolean {
+    for (const entry of this.mounted) {
+      if (!entry.anchor.isConnected || !entry.trigger.isConnected) return true
+    }
+    return false
+  }
+
+  /** Whether a mutated node is a slot anchor, or contains one. */
+  private carriesSlotAnchor(node: Node): boolean {
+    if (!(node instanceof Element)) return false
+    return node.matches(SLOT_SELECTOR) || node.querySelector(SLOT_SELECTOR) !== null
+  }
+
+  private onMutations(records: MutationRecord[]): void {
+    let relevant = this.mountSetDirty()
+    if (!relevant) {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (this.carriesSlotAnchor(node)) { relevant = true; break }
+        }
+        if (relevant) break
+      }
+    }
+    if (relevant) this.scheduleMounts()
+  }
+
+  private scheduleMounts(): void {
+    if (this.mountScheduled) return
+    this.mountScheduled = true
+    queueMicrotask(() => {
+      this.mountScheduled = false
+      if (!this.attached) return
+      this.syncMounts()
+    })
+  }
+
+  /** Mount our trigger into every live slot anchor that does not have one yet. */
+  private syncMounts(): void {
+    // Forget anchors that left the DOM when the composer remounted; their trigger went with them.
+    for (let index = this.mounted.length - 1; index >= 0; index -= 1) {
+      const entry = this.mounted[index]!
+      if (!entry.anchor.isConnected || !entry.trigger.isConnected) this.mounted.splice(index, 1)
+    }
+    for (const anchor of document.querySelectorAll<HTMLElement>(SLOT_SELECTOR)) {
+      try {
+        // Two independent guards: our own bookkeeping, plus a live look at the anchor. The second
+        // covers a trigger left by an earlier instance of this enhancer (attach/detach/attach across
+        // a hot reload), which the bookkeeping list cannot know about.
+        if (this.mounted.some((entry) => entry.anchor === anchor)) continue
+        if (anchor.querySelector('[' + TRIGGER_ATTR + ']') !== null) continue
+        const trigger = this.createTrigger()
+        anchor.append(trigger)
+        this.mounted.push({ anchor, trigger })
+      } catch (error) {
+        console.warn('[dsh-attachment-picker] mount into ' + SLOT_SELECTOR + ' failed', error)
+      }
+    }
+  }
+
+  private createTrigger(): HTMLButtonElement {
+    const copy = copyForDocument()
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'dsh-attachment-picker-trigger'
+    button.setAttribute(TRIGGER_ATTR, '')
+    button.setAttribute('aria-label', copy.file)
+    button.setAttribute('aria-haspopup', 'menu')
+    button.setAttribute('aria-expanded', 'false')
+    button.append(paperclipIcon())
+    // Our own listener only: nothing else in the composer is claimed, so the upstream "+" keeps
+    // its own onClick (onToggleCommandMenu) by construction.
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      this.toggle(button)
+    })
+    return button
+  }
+
+  private toggle(button: HTMLButtonElement): void {
     if (this.trigger === button && this.menu !== null) {
       this.close(true)
       return
     }
+    this.open(button)
+  }
+
+  private open(button: HTMLButtonElement): void {
     this.close()
     const copy = copyForDocument()
     const menu = document.createElement('div')
@@ -176,7 +282,6 @@ export class AttachmentPickerMenuEnhancer {
       menu.append(item)
     }
     document.body.append(menu)
-    button.setAttribute(PAPERCLIP_ATTR, '')
     button.setAttribute('aria-expanded', 'true')
     this.menu = menu
     this.trigger = button
@@ -193,7 +298,7 @@ export class AttachmentPickerMenuEnhancer {
   }
 
   private choose(button: HTMLButtonElement, kind: PickerKind): void {
-    const input = paperclipInput(button)
+    const input = hiddenFileInputIn(button)
     if (input === null || input.disabled || !input.isConnected) {
       this.close()
       return
@@ -252,8 +357,7 @@ export class AttachmentPickerMenuEnhancer {
     this.menu = null
     this.trigger = null
     if (trigger !== null) {
-      trigger.removeAttribute(PAPERCLIP_ATTR)
-      trigger.removeAttribute('aria-expanded')
+      trigger.setAttribute('aria-expanded', 'false')
       if (focus) trigger.focus({ preventScroll: true })
     }
   }
