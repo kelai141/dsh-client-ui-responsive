@@ -4,9 +4,9 @@
  * Upstream keeps ownership of the frame, the columns, and both sidebars; this
  * sheet only re-shapes them for a phone:
  * - the left sidebar becomes an off-canvas drawer (its collapsed rail steps
- *   aside with it; the top bar's toggle is the entry, and the rail's own
+ *   aside with it; the header's leading toggle is the entry, and the rail's own
  *   toggle keeps working from inside the drawer);
- * - the centre column spans the whole frame and pads under that top bar;
+ * - the centre column spans the whole frame and pads only under the system inset;
  * - the right column keeps its zero-width track so the upstream panel (already
  *   fullscreen below 768px of frame width) hangs over the centre as a
  *   slide-over, with the system insets respected;
@@ -19,7 +19,6 @@
 export const MOBILE_FORM_CSS: string = `
 :root {
   --dsh-mobile-top-inset: max(env(safe-area-inset-top, 0px), var(--dsh-android-system-top, 0px));
-  --dsh-mobile-topbar-height: 44px;
 }
 
 @media (max-width: 767px) {
@@ -73,7 +72,10 @@ export const MOBILE_FORM_CSS: string = `
   [data-dsh-frame] > [class*='centerCol'] {
     grid-column: 1 / -1;
     grid-row: 1;
-    padding-top: calc(var(--dsh-mobile-topbar-height) + var(--dsh-mobile-top-inset, 0px));
+    /* 0.14.2 P4: the self-drawn 44px top bar is gone (the drawer toggle now sits in
+       upstream's own header row), so the centre column no longer reserves a band
+       above the header -- only the system/safe-area top inset. */
+    padding-top: var(--dsh-mobile-top-inset, 0px);
   }
 
   [data-dsh-frame] > [class*='rightbarCol'] {

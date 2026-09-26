@@ -59,16 +59,31 @@ export function popupShiftLeft(left: number, right: number, viewportWidth: numbe
 
 /**
  * Usable height for an upward-opening popup.
- * The popup bottom is anchored to the composer, while the mobile top bar
- * occupies part of the viewport above it.
+ * The popup bottom is anchored to the composer, while the top chrome
+ * (upstream's header) occupies part of the viewport above it.
  * @param popupBottom - popup bottom edge.
- * @param topbarBottom - mobile top bar bottom edge.
+ * @param topbarBottom - bottom edge of the top chrome above the popup.
  * @param chromeHeight - popup padding/border excluded from a content-box cap.
  * @param cap - design height cap for this popup kind.
  * @returns the height cap in whole CSS pixels.
  */
 export function composerPopupMaxHeight(popupBottom: number, topbarBottom: number, chromeHeight = 0, cap = LISTBOX_HEIGHT_CAP): number {
   return Math.max(0, Math.min(cap, Math.floor(popupBottom - topbarBottom - TOPBAR_CLEARANCE - chromeHeight)))
+}
+
+/**
+ * Bottom edge of the top chrome above the composer, or null when there is none.
+ *
+ * 0.14.2 P4 removed the self-drawn 44px band ([data-dsh-mobile-topbar]); the real top
+ * chrome is now upstream's own conversation header. The header element carries no
+ * unique attribute of its own (data-window-drag is on several rows), so it is resolved
+ * through the leading seat this plugin registers the drawer toggle into — that seat is
+ * inside exactly one header.
+ * @returns the header's bottom edge, or null when the header is absent.
+ */
+function headerTopChrome(): HTMLElement | null {
+  const leading = document.querySelector<HTMLElement>('[data-conversation-header-leading]')
+  return leading?.closest('header') ?? null
 }
 
 /** The painted surface of a popup: the role element itself, or its card parent. */
@@ -137,7 +152,13 @@ export class ComposerPopupGuard {
 
   private apply(): void {
     const card = document.querySelector<HTMLElement>('[data-composer-card]')
-    const topbar = document.querySelector<HTMLElement>('[data-dsh-mobile-topbar]')
+    // 0.14.2 P4: [data-dsh-mobile-topbar] is gone, so the clamp measures the real
+    // top chrome instead — upstream's own header. Without this the upward caps
+    // would loosen by the header's whole height and menus would run up under it.
+    // Fallback chain: the header's own element, then the legacy band (still present
+    // on a shell that has not picked this change up), then 0.
+    const topbar = headerTopChrome()
+      ?? document.querySelector<HTMLElement>('[data-dsh-mobile-topbar]')
     if (card === null) {
       this.clear()
       return
