@@ -10,8 +10,9 @@
  * - a phone form (<768px) in CSS: the left sidebar becomes an off-canvas drawer,
  *   the centre column spans the frame, and the right Sidebar keeps upstream's own
  *   fullscreen slide-over (its threshold is the same 768px);
- * - one top-bar entry for that drawer (`shell.overlay`), so no control is added
- *   to the sidebar rail or the composer row;
+ * - one drawer toggle in upstream's own header row (`conversation.header.leading`),
+ *   so no control is added to the sidebar rail or the composer row;
+ * - the drawer mask (`shell.overlay`), which covers the frame while it is open;
  * - the native "open with" wiring: a Session-header action for the workspace
  *   directory and an `extension`-band tab type for files no preview can show;
  * - the pre-existing Android fixes (composer popups, insets, keyboard boundary,
@@ -52,7 +53,8 @@ import { ExportResultChannel, reportUserFacingResult, type ExportResultPayload }
 import { MobileFormMarker } from './mobile/form-marker.ts'
 import { MOBILE_FORM_CSS } from './mobile/mobile-form.css.ts'
 import { MobileChrome, type MobileChromeInjected } from './mobile/MobileChrome.tsx'
-import { OpenInFileManagerAction } from './mobile/OpenInFileManagerAction.tsx'
+import { SidebarToggle, type SidebarToggleInjected } from './mobile/SidebarToggle.tsx'
+import { VENDOR_CHROME_HIDE_CSS } from './mobile/vendor-chrome-hide.css.ts'
 import { EXTERNAL_OPEN_ID, externalOpenDefinition } from './mobile/external-open-paths.ts'
 import { ExternalOpenTab } from './mobile/external-open.tsx'
 import { SettingsDocumentAction } from './mobile/settings-document.ts'
@@ -267,8 +269,8 @@ export function apply(ctx: ClientContext): void {
 
   // ── Frame-wide entries ──────────────────────────────────────────────────
 
-  // Mobile chrome: the top bar holding the drawer toggle, plus its mask. This
-  // is the only place the phone form adds a control.
+  // Mobile chrome: the drawer mask only (0.14.2 P4 moved the toggle out of this
+  // layer, see below). The mask covers the frame while the drawer is open.
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
     id: 'mobile-chrome',
@@ -276,6 +278,26 @@ export function apply(ctx: ClientContext): void {
       toggleSidebar: () => { ctx.layout.toggleSidebar() },
     }),
   }, MobileChrome))
+
+  // The drawer toggle, moved into upstream's own header row (0.14.2 P4).
+  //
+  // It used to live in a self-drawn 44px band ([data-dsh-mobile-topbar]) above the
+  // header; the user reported that band as wasted vertical space ("这个顶部的额头太大了
+  // （标题上方留空）挤占屏幕空间"). Upstream already owns a reserved, empty seat for
+  // exactly this control — conversation.header.leading, a global-navigation seat
+  // rendered beside the Session title (ui-conversation skeleton/ConversationHeader)
+  // — so the toggle moves there and the band is gone.
+  ctx.slots.inject('conversation.header.leading', () => ctx.slots.register({
+    name: 'conversation.header.leading',
+    inject: (): SidebarToggleInjected => ({
+      toggleSidebar: () => { ctx.layout.toggleSidebar() },
+    }),
+  }, SidebarToggle))
+
+  // Vendor chrome the user asked to remove (0.14.2 P5): the undo-savepoint dot.
+  // See the module header for why this is a CSS override on the vendor's own
+  // attribute rather than a vendor edit.
+  ctx.effect(() => injectStyle('vendor-chrome-hide', VENDOR_CHROME_HIDE_CSS), 'ui-responsive: hide vendor header chrome')
 
   // Export-result dialog: the shell's session-export download finishes on a
   // background thread and reports through window.__dshExportResult. The bridge
@@ -308,14 +330,11 @@ export function apply(ctx: ClientContext): void {
 
   // ── Native "open with" wiring ───────────────────────────────────────────
 
-  // Session-header action: open the Session's workspace directory through the
-  // Android system chooser. Upstream's own open-in-app split button is disabled
-  // in the Android profile (its host catalog probes desktop applications).
-  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
-    name: 'conversation.session.header.utilities',
-    id: 'android-open-in-file-manager',
-    order: -10,
-  }, OpenInFileManagerAction))
+  // Retired (0.14.2 P5): the Session-header "open in file manager" action used to
+  // be registered at conversation.session.header.utilities. The user reported the
+  // folder button as useless and asked for it to go away (2026-09-26), so its
+  // registration is gone and no other site re-adds it. The component file stays
+  // for the "open with" tab type, which still opens files through the chooser.
 
   // "Open with" tab type: archives, packages, and binaries the built-in
   // previews cannot render. Registered at the `extension` band, but it declines
