@@ -16,7 +16,7 @@ export const DEV_SECTION_CSS: string = `
   margin: 0;
   font-size: 13px;
   line-height: 20px;
-  color: var(--dsw-alias-label-secondary, #666);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .dsh-dev-row {
@@ -57,10 +57,10 @@ export const DEV_SECTION_CSS: string = `
 .dsh-dev-btn {
   min-height: 36px;
   padding: 6px 14px;
-  border: 1px solid var(--dsw-alias-border-strong, #ccc);
+  border: 1px solid var(--dsw-alias-border-l3);
   border-radius: 8px;
-  background: var(--dsw-alias-bg-elevated, #fff);
-  color: var(--dsw-alias-label-primary, #222);
+  background: var(--dsw-alias-button-elevated-fill);
+  color: var(--dsw-alias-label-primary);
   font-size: 13px;
   line-height: 20px;
   cursor: pointer;
@@ -72,8 +72,8 @@ export const DEV_SECTION_CSS: string = `
 }
 
 .dsh-dev-danger {
-  border-color: var(--dsw-alias-danger-fg, #c0392b);
-  color: var(--dsw-alias-danger-fg, #c0392b);
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .dsh-dev-modal-overlay {
@@ -91,24 +91,24 @@ export const DEV_SECTION_CSS: string = `
   width: 100%;
   max-width: 360px;
   padding: 18px 20px;
-  border: 1px solid var(--dsw-alias-border-strong, #ccc);
+  border: 1px solid var(--dsw-alias-border-l3);
   border-radius: 12px;
-  background: var(--dsw-alias-bg-elevated, #fff);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-elevation-prominent);
 }
 
 .dsh-dev-modal-title {
   margin: 0 0 8px;
   font-size: 15px;
   font-weight: 600;
-  color: var(--dsw-alias-label-primary, #222);
+  color: var(--dsw-alias-label-primary);
 }
 
 .dsh-dev-modal-desc {
   margin: 0 0 16px;
   font-size: 13px;
   line-height: 20px;
-  color: var(--dsw-alias-label-secondary, #666);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .dsh-dev-modal-actions {
@@ -119,7 +119,7 @@ export const DEV_SECTION_CSS: string = `
 
 .dsh-dev-switch {
   font-size: 14px;
-  color: var(--dsw-alias-label-primary, #222);
+  color: var(--dsw-alias-label-primary);
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
@@ -196,8 +196,8 @@ export const DEV_SECTION_CSS: string = `
 }
 .dsh-screen-control-state[data-state='ready'],
 .dsh-screen-control-state[data-state='active'] {
-  border-color: var(--dsw-specific-primary);
-  color: var(--dsw-specific-primary);
+  border-color: var(--dsw-alias-link);
+  color: var(--dsw-alias-link);
 }
 .dsh-screen-control-detail {
   display: flex;
@@ -210,20 +210,20 @@ export const DEV_SECTION_CSS: string = `
 .dsh-screen-control-detail strong { color: var(--dsw-alias-label-primary); }
 
 .dsh-dev-error {
-  color: var(--dsw-specific-danger, #d33);
+  color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
   line-height: 18px;
 }
 
 .dsh-dev-label {
   font-size: 14px;
-  color: var(--dsw-alias-label-primary, #222);
+  color: var(--dsw-alias-label-primary);
   min-width: 64px;
 }
 
 .dsh-dev-value {
   font-size: 13px;
-  color: var(--dsw-alias-label-secondary, #666);
+  color: var(--dsw-alias-label-secondary);
   min-width: 44px;
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -238,14 +238,14 @@ export const DEV_SECTION_CSS: string = `
   margin: 0;
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-label-secondary, #666);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .dsh-dev-warn {
   margin: 0;
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-danger-fg, #c0392b);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 /* 0.14.1 块 E：运行时缓存清理块（清单行 + 跳过明细折叠）。标签一律为
@@ -255,9 +255,9 @@ export const DEV_SECTION_CSS: string = `
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border: 1px solid var(--dsw-alias-border-l3, #e3e3e8);
+  border: 1px solid var(--dsw-alias-border-l3);
   border-radius: 12px;
-  background: var(--dsw-alias-bg-layer-2, #fafafa);
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 .dsh-dev-cache-list {
@@ -267,7 +267,7 @@ export const DEV_SECTION_CSS: string = `
   overflow: auto;
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-label-secondary, #666);
+  color: var(--dsw-alias-label-secondary);
   word-break: break-all;
 }
 
@@ -277,9 +277,9 @@ export const DEV_SECTION_CSS: string = `
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border: 1px solid var(--dsw-alias-border-l3, #e3e3e8);
+  border: 1px solid var(--dsw-alias-border-l3);
   border-radius: 12px;
-  background: var(--dsw-alias-bg-layer-2, #fafafa);
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 .dsh-dev-notify-cats {
@@ -298,46 +298,28 @@ export const DEV_SECTION_CSS: string = `
   margin: 0 0 0 2px;
 }
 
-/* Dark-theme fallback (#43, 2026-08-18): in some environments --dsw-alias-bg-elevated is undefined
- * and falls back to #fff (white bg), while label-primary is white text in dark mode → white-on-white.
- * Provide explicit theme-consistent fallbacks for tokens that may not exist. */
-@media (prefers-color-scheme: dark) {
-  .dsh-dev-btn {
-    background: var(--dsw-alias-bg-elevated, #26262b);
-    color: var(--dsw-alias-label-primary, #f2f2f4);
-    border-color: var(--dsw-alias-border-strong, #55555c);
-  }
-  .dsh-dev-note, .dsh-dev-hint {
-    color: var(--dsw-alias-label-secondary, #c9c9cf);
-  }
-  .dsh-dev-warn {
-    color: var(--dsw-alias-danger-fg, #ff9c9c);
-  }
-  .dsh-dev-danger {
-    border-color: var(--dsw-alias-danger-fg, #ff9c9c);
-    color: var(--dsw-alias-danger-fg, #ff9c9c);
-  }
-  .dsh-dev-modal {
-    background: var(--dsw-alias-bg-elevated, #26262b);
-    border-color: var(--dsw-alias-border-strong, #55555c);
-  }
-  .dsh-dev-modal-title {
-    color: var(--dsw-alias-label-primary, #f2f2f4);
-  }
-  .dsh-dev-modal-desc {
-    color: var(--dsw-alias-label-secondary, #c9c9cf);
-  }
-  .dsh-dev-cache {
-    background: var(--dsw-alias-bg-layer-2, #26262b);
-    border-color: var(--dsw-alias-border-l3, #3a3a42);
-  }
-  .dsh-dev-cache-list {
-    color: var(--dsw-alias-label-secondary, #c9c9cf);
-  }
-  .dsh-dev-notify {
-    background: var(--dsw-alias-bg-layer-2, #26262b);
-    border-color: var(--dsw-alias-border-l3, #3a3a42);
-  }
+/* #43 深色兜底（2026-08-18 首修 / 2026-09-25 二次修）。
+ *
+ * 首修把这一块挂在 @media (prefers-color-scheme: dark)：本机实测三个 prefers-color-scheme
+ * 查询（dark/light/no-preference）全为 false，所以那块兜底从未生效。主题真源是
+ * body[data-ds-dark-theme]（壳侧另写 html[data-ds-theme-source]='dark'），上游
+ * design-platform.css 自己的深色令牌表也挂这个选择器 —— 故本节改挂同一选择器。
+ *
+ * 上方基础规则已全部改用本代存在的自适应令牌（label-primary / label-secondary /
+ * bg-layer-2 / border-l3 / button-elevated-fill / state-error-primary），亮暗两套取值由上游
+ * 按主题各自定义。因此本节在正常宿主下不改变任何取值，只在整张令牌表缺席的宿主
+ * （非 Android WebView、无 dsh 主题表）里兜住深色：回退值一律取深色，绝不再退回
+ * #fff/#ccc 这类亮色硬编码，否则就是 #43 的白底白字复发。 */
+body[data-ds-dark-theme] .dsh-dev-btn,
+body[data-ds-dark-theme] .dsh-dev-modal {
+  background: var(--dsw-alias-bg-layer-2, #26262b);
+  border-color: var(--dsw-alias-border-l3, #3a3a42);
+}
+body[data-ds-dark-theme] .dsh-dev-warn,
+body[data-ds-dark-theme] .dsh-dev-danger,
+body[data-ds-dark-theme] .dsh-dev-error {
+  border-color: var(--dsw-alias-state-error-primary, #f25a5a);
+  color: var(--dsw-alias-state-error-primary, #f25a5a);
 }
 
 @media (max-width: 639px) {

@@ -26,6 +26,8 @@
  *   collapse toggle;
  * - `@`/slash menu: the menu's own outside-pointerdown dismissal;
  * - menu drill-down: the last enabled breadcrumb (one level per press).
+ * - attachment source menu (this plugin's own paperclip popup): its own
+ *   outside-pointerdown dismissal, which the enhancer implements.
  *
  * Failure direction: the stack only ever pops through reconciliation (a layer's
  * anchor disappearing from the DOM). A layer whose control cannot be found keeps
@@ -41,6 +43,7 @@ export type BackLayerKind =
   | 'right-fullscreen'
   | 'menu'
   | 'menu-drill'
+  | 'attachment-menu'
 
 /** One observed layer plus the closure that pops it. */
 interface BackLayerDetection {
@@ -81,6 +84,15 @@ const TRAJECTORY_LABELS = ['Event details', '事件详情']
 const RIGHT_FULLSCREEN_SELECTOR =
   '[data-sidebar-right-panel="fullscreen"][data-sidebar-right-open]:not([aria-hidden="true"])'
 const MENU_SELECTOR = '[data-trigger-menu]'
+/**
+ * This plugin's own attachment-source popup (attachment-picker-menu.ts).
+ *
+ * D8: the menu is mounted on document.body and removed on close, so its presence is exactly
+ * "open". It was not a layer, and the shell's back callback treats "no layer" as FINISH_ACTIVITY
+ * (BackGate.kt:56-60), so pressing system back with the menu open exited the app instead of
+ * closing it.
+ */
+const ATTACHMENT_MENU_SELECTOR = '[data-dsh-attachment-picker-menu]'
 /** The drilled-listing breadcrumb header (a `nav`; the candidate list is a `div[role=listbox]`). */
 const MENU_DRILL_SELECTOR = '[data-trigger-menu] nav'
 /** Hashed CSS-module close controls still carry the class token (`[class*=ledger]` precedent). */
@@ -96,6 +108,7 @@ const OBSERVED_ATTRIBUTES = [
   'data-sidebar-right-panel',
   'data-sidebar-right-open',
   'data-trigger-menu',
+  'data-dsh-attachment-picker-menu',
 ]
 
 declare global {
@@ -337,6 +350,8 @@ export class BackStackSignal {
     if (menu !== null) found.push(menu)
     const drill = this.detectMenuDrill()
     if (drill !== null) found.push(drill)
+    const attachmentMenu = this.detectAttachmentMenu()
+    if (attachmentMenu !== null) found.push(attachmentMenu)
     return found
   }
 
@@ -399,6 +414,19 @@ export class BackStackSignal {
     const menu = document.querySelector<HTMLElement>(MENU_SELECTOR)
     if (menu === null) return null
     return { id: 'menu', kind: 'menu', close: () => closeMenu(menu) }
+  }
+
+  /**
+   * This plugin's own attachment-source menu.
+   *
+   * Distinct from the upstream trigger menus: it is our node, mounted on document.body, and the
+   * enhancer already closes it on the same outside-pointerdown gesture upstream menus use - so the
+   * shared dismissal path below is the right control.
+   */
+  private detectAttachmentMenu(): BackLayerDetection | null {
+    const menu = document.querySelector<HTMLElement>(ATTACHMENT_MENU_SELECTOR)
+    if (menu === null) return null
+    return { id: 'attachment-menu', kind: 'attachment-menu', close: () => closeMenu(menu) }
   }
 
   /** A menu listing descended into a directory (its breadcrumb header is up). */

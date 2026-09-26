@@ -65,6 +65,20 @@ export interface AndroidShellBridge {
   /** 0.14.1「手机控制」：Shizuku 特权通道真实状态 JSON（installed/running/granted/bound/binding/code/guidance）。
    *  这是「装没装」的事实判定来源——不是 vdisplayStatus()（后者是虚拟屏状态）。 */
   shizukuStatus?: () => string
+  /**
+   * 0.14.2「重置链接」：强制移除 Shizuku 侧的 UserService 并清空本地绑定态，然后**写后回读**返回
+   * 与 [shizukuStatus] 同构的状态 JSON。
+   *
+   * 为什么需要它：现场「已授权 → 跳成需要准备 → 重新授权和重启 App 都不行」——重启 App 无效这条
+   * 排除了进程内标志位脏，指向 Shizuku 侧 UserService 处于坏态（绑定请求既不回调也不抛）。因此本方法
+   * 必须调 `Shizuku.unbindUserService(..., remove = true)` 让管理器移除该实例，下次绑定重建干净的。
+   *
+   * 两侧都声明（Kotlin `AndroidBridge.resetShizukuConnection` 同批落地），故**不需要**登记进
+   * bridge-symmetry-baseline.json 的 kotlinOnly。
+   *
+   * 本方法**不在壳侧同步等待新绑定**（UI 路径，绝不阻塞）：返回后由本页既有的 2 秒轮询收敛。
+   */
+  resetShizukuConnection?: () => string
   /** Pre-0.13.7 implicit ACTION_VIEW on a single path (kept: the page's path clicks
    *  fall back to it when the chooser is unavailable). Returns whether it launched. */
   openNativePath?: (path: string) => boolean

@@ -8,14 +8,14 @@
 
 .name {
   margin: 0;
-  font-size: var(--dsh-content-font-size-primary, 14px);
-  color: var(--dsw-alias-text-l1);
+  font-size: var(--dsh-content-font-size, 14px);
+  color: var(--dsw-alias-label-primary);
   overflow-wrap: anywhere;
 }
 
 .path {
   margin: 0;
-  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--dsw-font-markdown-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: var(--dsh-content-font-size-secondary, 13px);
   color: var(--dsw-alias-label-secondary);
   overflow-wrap: anywhere;
@@ -46,17 +46,17 @@
 }
 
 .primary {
-  color: var(--dsw-alias-text-l1);
+  color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .secondary {
-  color: var(--dsw-alias-text-l1);
+  color: var(--dsw-alias-label-primary);
   background: transparent;
 }
 
 .failure {
   margin: 4px 0 0;
   font-size: var(--dsh-content-font-size-secondary, 13px);
-  color: var(--dsw-alias-error-text, #e5484d);
+  color: var(--dsw-alias-state-error-primary);
 }

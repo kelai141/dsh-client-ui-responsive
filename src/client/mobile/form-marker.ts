@@ -10,11 +10,18 @@
  * - `data-dsh-frame` tags the upstream frame root. The frame carries no stable
  *   hook of its own; its right column does (`data-rightbar-col`), so the tag is
  *   written from there and re-applied whenever the frame remounts.
- * - `data-dsh-modal-open` on `<html>` and `data-dsh-settings-dialog` on the
- *   settings panel. The settings overlay renders inside the sidebar subtree, so
- *   a translated (off-canvas) ancestor would carry it off-screen; the settings
- *   panel itself has no attribute to key a stylesheet on, only its nav/content
- *   structure.
+ * - `data-dsh-modal-open` on `<html>` when any body-level modal is up, and
+ *   `data-dsh-settings-dialog` on the settings panel itself. The settings
+ *   overlay renders inside the sidebar subtree, so a translated (off-canvas)
+ *   ancestor would carry it off-screen; the settings panel has no attribute of
+ *   its own to key a stylesheet on, only its nav/content structure, so this
+ *   marker is written onto the panel element it finds.
+ * - `data-dsh-settings-open` on `<html>` while that settings panel is present.
+ *   The narrow-form sheet must pin the drawer (transform: none) for the
+ *   settings panel alone: a descendant rule cannot key on an attribute carried
+ *   by the descendant, and a :has() selector would need a Chromium 105 floor
+ *   this plugin does not have. Publishing the fact on the root keeps the
+ *   stylesheet a plain attribute match on every supported kernel.
  */
 
 /** Width at or below which the phone form applies; matches upstream's 768px fullscreen threshold. */
@@ -28,6 +35,9 @@ const FRAME_TAG = 'data-dsh-frame'
 
 /** Settings-panel tag consumed by the mobile settings stylesheet. */
 const SETTINGS_TAG = 'data-dsh-settings-dialog'
+
+/** Root tag consumed by the narrow-form stylesheet to pin the drawer for the settings panel alone. */
+const SETTINGS_OPEN_TAG = 'data-dsh-settings-open'
 
 /** Marks the phone form on `<html>` and tags the upstream frame root. */
 export class MobileFormMarker {
@@ -58,6 +68,7 @@ export class MobileFormMarker {
     this.modal = null
     document.documentElement.removeAttribute('data-dsh-mobile-form')
     document.documentElement.removeAttribute('data-dsh-modal-open')
+    document.documentElement.removeAttribute(SETTINGS_OPEN_TAG)
   }
 
   private readonly syncDom = (): void => {
@@ -66,7 +77,8 @@ export class MobileFormMarker {
   }
 
   /**
-   * Publish "a modal is up" and tag the settings panel.
+   * Publish "a modal is up", tag the settings panel, and mirror that one
+   * dialog on the root.
    *
    * Dialogs inside the frame's own overlay layer (this plugin's export-result
    * dialog) are not modals over the sidebar and never pin the drawer.
@@ -81,6 +93,7 @@ export class MobileFormMarker {
       settings?.setAttribute(SETTINGS_TAG, '')
     }
     document.documentElement.toggleAttribute('data-dsh-modal-open', dialogs.length > 0)
+    document.documentElement.toggleAttribute(SETTINGS_OPEN_TAG, settings !== null)
   }
 
   private readonly syncForm = (): void => {

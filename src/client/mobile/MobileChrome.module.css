@@ -44,7 +44,7 @@
     border: none;
     border-radius: 10px;
     background: transparent;
-    color: var(--dsw-alias-text-l1);
+    color: var(--dsw-alias-label-primary);
     cursor: pointer;
     touch-action: manipulation;
   }
@@ -95,7 +95,7 @@
   margin-left: 6px;
   font-size: 12px;
   line-height: 1;
-  color: var(--dsw-alias-text-2);
+  color: var(--dsw-alias-label-secondary);
   white-space: nowrap;
 }
 
