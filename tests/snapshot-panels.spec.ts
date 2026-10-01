@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
-/** Source-derived fixtures only: these do not measure WebView paint or native overlay ordering. */
+/**
+ * Source-derived fixtures only: these do not measure WebView paint or native overlay ordering.
+ * 唯一的跨仓断言（vendored undo-savepoint 的钩子形态）在 vendor/ 缺席时显式 skip —— 见 vendorPath 注释。
+ */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,15 +11,24 @@ import { SNAPSHOT_PANELS_CSS } from '../src/client/snapshot-panels.css.ts'
 
 const RAISED = 'dsh-mobile-snapshot-header-raised'
 
-/** Resolve a vendored-fixed copy from cwd upward; jsdom makes import.meta.url non-file. */
-function vendorPath(...segments: string[]): string {
+/**
+ * Resolve a vendored-fixed copy from cwd upward; jsdom makes import.meta.url non-file.
+ *
+ * Returns null when absent on purpose: `vendor/dsh-undo-savepoint` lives in the **coordination repo**,
+ * not here, so a standalone CI checkout of this repo legitimately has no vendor tree. Returning null lets
+ * the single ownership test declare itself skipped there instead of failing on a file it never owned —
+ * while still asserting the real hooks wherever the full tree is present (local + APK self-contained build).
+ */
+function vendorPath(...segments: string[]): string | null {
   let dir = process.cwd()
-  for (let depth = 0; depth < 4; depth++) {
+  for (let depth = 0; depth < 5; depth++) {
     const candidate = join(dir, 'vendor', ...segments)
     if (existsSync(candidate)) return candidate
-    dir = join(dir, '..')
+    const parent = join(dir, '..')
+    if (parent === dir) break
+    dir = parent
   }
-  throw new Error('vendor copy not found: ' + join('vendor', ...segments))
+  return null
 }
 const observers: SnapshotPanelsObserver[] = []
 
@@ -68,11 +80,18 @@ async function settle(): Promise<void> {
 }
 
 describe('snapshot source ownership', () => {
-  it('pins exact vendor hooks and the non-portal header mounting path', () => {
+  it('pins exact vendor hooks and the non-portal header mounting path', (context) => {
     // 不用 new URL(..., import.meta.url)：本文件跑在 jsdom 环境下，import.meta.url 是 http: 协议，
     // fileURLToPath 会抛 TypeError: The URL must be of scheme file（首次进打包门禁时实测）。
     // 改从 cwd 逐级上溯找 vendor/：协调仓布局（cwd=包目录）与 APK 自包含布局都能命中。
-    const vendor = readFileSync(vendorPath('dsh-undo-savepoint', 'lib', 'client.js'), 'utf8')
+    const path = vendorPath('dsh-undo-savepoint', 'lib', 'client.js')
+    if (path === null) {
+      // 本仓 CI 只检出 dsh-client-ui-responsive，vendor/ 属协调仓 ⇒ 该断言在本仓无从谈起。
+      // 显式 skip 而不是伪造通过：整棵树在场时（本地协调仓 / APK 自包含构建）它照常判真。
+      context.skip()
+      return
+    }
+    const vendor = readFileSync(path, 'utf8')
     expect(vendor).toContain('overlay: "u_overlay", panel: "u_panel"')
     expect(vendor).toContain('"data-undo-panel": true')
     expect(vendor).toContain('"data-undo-msg-panel": true')
