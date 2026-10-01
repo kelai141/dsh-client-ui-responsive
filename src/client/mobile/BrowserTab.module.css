@@ -2,95 +2,81 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-width: 0;
   min-height: 0;
-  box-sizing: border-box;
+  color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-base);
 }
 
-/* S3-18：桥不在场时的说明行——面板不可用时必须有一个字解释，而不是整块死控件。 */
-.hint {
-  margin: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--dsw-alias-border-l3);
-  border-radius: 8px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-/* 顶 / 底控制条：只保留输入与按钮，无任何文字标签；收起态以高度归零让位给页面。 */
-.bar {
+/* The official body's viewport, not this wrapper, owns native stage geometry. */
+.official {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 44px;
-  padding: 6px;
-  box-sizing: border-box;
-  overflow: hidden;
-  transition: height 140ms ease, padding 140ms ease, opacity 140ms ease;
-}
-.barTop { border-bottom: 1px solid var(--dsw-alias-border-l3); }
-.barBottom { border-top: 1px solid var(--dsw-alias-border-l3); }
-.barCollapsed {
-  height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.input {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--dsw-alias-border-l4);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-primary);
-  font: var(--dsw-font-markdown-small);
-}
-.primary,
-.mode {
-  flex: 0 0 auto;
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-  font: var(--dsw-font-markdown-small);
-}
-.primary {
-  border: 1px solid var(--dsw-alias-button-primary-fill);
-  background: var(--dsw-alias-button-primary-fill);
-  color: var(--dsw-alias-label-primary-foreground);
-}
-.mode {
-  border: 1px solid var(--dsw-alias-border-l4);
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-primary);
-}
-.mode[aria-pressed='true'] {
-  border-color: var(--dsw-alias-button-primary-fill);
-  color: var(--dsw-alias-button-primary-fill);
-}
-.input:disabled,
-.primary:disabled,
-.mode:disabled { opacity: 0.5; }
-
-/* 原生 BrowserHost 覆盖层按此矩形定位；这里不画任何内容（占用态除外）。 */
-.stage {
-  position: relative;
-  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  display: grid;
-  place-items: center;
-  background: var(--dsw-alias-bg-layer-2);
 }
 
-.occupied {
-  margin: 0;
-  padding: 0 16px;
-  color: var(--dsw-alias-label-secondary);
-  font: var(--dsw-font-markdown-small);
-  text-align: center;
+.controls {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 6px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.mode,
+.apply,
+.status button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0 9px;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+  background: var(--dsw-alias-bg-layer-1);
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  cursor: pointer;
+}
+
+.mode[aria-pressed='true'] {
+  color: var(--dsw-alias-state-business-primary);
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.mode:disabled,
+.apply:disabled,
+.resolution:disabled { opacity: 0.5; cursor: default; }
+
+.resolution {
+  flex: 1 1 90px;
+  box-sizing: border-box;
+  min-width: 80px;
+  width: 110px;
+  height: 28px;
+  padding: 0 9px;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+  background: var(--dsw-alias-bg-layer-1);
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+}
+
+.resolution[aria-invalid='true'] { border-color: var(--dsw-alias-state-error-primary); }
+
+.status {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 10px;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-state-error-primary);
+  font: var(--dsw-font-xxxs-11);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
 }

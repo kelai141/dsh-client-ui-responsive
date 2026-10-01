@@ -65,6 +65,10 @@ export interface AndroidShellBridge {
   /** 0.14.1「手机控制」：Shizuku 特权通道真实状态 JSON（installed/running/granted/bound/binding/code/guidance）。
    *  这是「装没装」的事实判定来源——不是 vdisplayStatus()（后者是虚拟屏状态）。 */
   shizukuStatus?: () => string
+  /** 2026-09-30：**显式请求 Shizuku 授权**（UI 线程 + 前台 Activity 发起，管理器弹授权对话框）。
+   *  后台自动请求落不到用户眼前（实测：管理器「应用管理」列表里根本没有本应用、状态恒 denied）。
+   *  返回写后回读的 status JSON + `requested`。 */
+  requestShizukuPermission?: () => string
   /**
    * 0.14.2「重置链接」：强制移除 Shizuku 侧的 UserService 并清空本地绑定态，然后**写后回读**返回
    * 与 [shizukuStatus] 同构的状态 JSON。
@@ -79,6 +83,38 @@ export interface AndroidShellBridge {
    * 本方法**不在壳侧同步等待新绑定**（UI 路径，绝不阻塞）：返回后由本页既有的 2 秒轮询收敛。
    */
   resetShizukuConnection?: () => string
+  /**
+   * issue #262「AI root 权限」读面：`{ok, granted, consentValid, consentVersionCode,
+   * currentVersionCode, channelUid, channelRoot, canToggle, honesty, ownership}`。
+   *
+   * `channelRoot` 是**通道身份**判据（Shizuku 服务端 uid==0），不是「设备是否 root」——
+   * 已 root 但 Shizuku 以 ADB（uid 2000）启动时此值为 false；显式授权的 su 是独立替代通道。
+   */
+  rootGrantState?: () => string
+  /** issue #262 开关写面：判据（通道 root + 同意有效）全满足才写入；返回写后读回 JSON，
+   *  拒绝时带 `code`（`not-root-channel` / `consent-required`）与 `guidance`。 */
+  setRootGranted?: (on: boolean) => string
+  /** issue #262「已阅读」确认写面：取消勾选即撤销同意并**同时关闭开关**；
+   *  同意与 versionCode 绑定，升级后自动失效需重新确认。 */
+  setRootConsent?: (on: boolean) => string
+  /** issue #262 免责门：打开 APK 内免责声明（`LocalDocs` 通道，页面不传路径）。
+   *  返回 JSON `{ok, reason?}`（reason ∈ unknown-key / missing-asset / no-handler / 异常类名）。 */
+  openRootDisclaimer?: () => string
+  /** 2026-09-30 主人定例：应用级 root 授权状态（**纯读，永不触发弹窗**）。
+   *  `{ok, suExists, suPath, state: 'unknown'|'requesting'|'granted'|'denied'|'timeout'|'no-su',
+   *  uid, granted, requesting, manager:{package,label,installed}, guidance}`。 */
+  rootAccessState?: () => string
+  /** 2026-09-30 主人定例：显式检测 root 授权——后台 `su -c id -u` 取真实 uid；不保证所有管理器自动弹窗。
+   *  非阻塞（立即返回 `{ok:true,code:'request-started'}`，结果靠轮询 rootAccessState 收敛）；
+   *  幂等（在飞时不重复起，避免弹窗连发）。 */
+  requestRootAccess?: () => string
+  /* 2026-09-30 主人指正后**移除**了 `openRootManager`：各家 Root 管理器包名/入口不一
+     （还可能根本没有管理器 App，如部分 ROM 内置 su），打开不保证成功 ✗；而能刷 root 的用户
+     自己会开管理器 ✓ ⇒ 只保留「检测/请求 root 授权」＋诚实引导文案。勿再加回来。 */
+  /** Single-flight asynchronous native app-data ownership maintenance; never an AI shell entry.
+   * Returns `{ok, code:repair-started|repair-running, running, startedAt, ...}` immediately.
+   * Only `rootGrantState().ownership.result` settles checked/healed/failures and complete/partial status. */
+  repairRootOwnership?: () => string
   /** Pre-0.13.7 implicit ACTION_VIEW on a single path (kept: the page's path clicks
    *  fall back to it when the chooser is unavailable). Returns whether it launched. */
   openNativePath?: (path: string) => boolean
@@ -95,6 +131,8 @@ export interface AndroidShellBridge {
   incomingWorkspacePath?: () => string
   /** BrowserHost workbench lifecycle/navigation state (JSON string). */
   browserHostStatus?: () => string
+  /** Narrow session/tab-addressed navigation; JSON replies echo session and authoritative native tabs. */
+  browserHostCommand?: (payload: string) => string
   browserHostShow?: (url?: string | null) => string
   browserHostHide?: () => string
   browserHostReload?: () => string

@@ -37,6 +37,8 @@ import { COMPOSER_ROW_CSS } from './composer-row.css.ts'
 import { COMPOSER_INSETS_CSS } from './composer-insets.css.ts'
 import { TRAJECTORY_DETAILS_CSS } from './trajectory-details.css.ts'
 import { TrajectoryPanelsObserver } from './trajectory-panels-observer.ts'
+import { SnapshotPanelsObserver } from './snapshot-panels-observer.ts'
+import { SNAPSHOT_PANELS_CSS } from './snapshot-panels.css.ts'
 import { ComposerPopupGuard } from './composer-popup-guard.ts'
 import { SESSION_LOG_DIALOG_HIDE_CSS } from './session-log-dialog.css.ts'
 import { SessionLogDialogObserver } from './session-log-dialog-observer.ts'
@@ -64,13 +66,19 @@ import { MAIN_PANEL_BACK_CSS } from './mobile/main-panel-back.css.ts'
 import { MainPanelBackMount } from './mobile/main-panel-back.ts'
 import { PanelNavDrawer } from './mobile/panel-nav-drawer.ts'
 import { SessionMarker, type SessionsFace } from './mobile/session-marker.ts'
-import { BROWSER_TAB_ID, BROWSER_TAB_KIND, BrowserTab, browserTabDefinition } from './mobile/browser-tab.tsx'
 import {
-  BrowserAutoPlace,
-  domCollapsedNow,
-  domCurrentSessionId,
-  type BrowserSidebarFace,
-} from './mobile/browser-auto-place.ts'
+  BROWSER_TAB_ID, BROWSER_TAB_KIND, LEGACY_BROWSER_TAB_ID, LEGACY_BROWSER_TAB_KIND,
+  BrowserTab, BrowserTabMenu, browserTabDefinition, legacyBrowserTabDefinition,
+} from './mobile/browser-tab.tsx'
+import { NativeBrowserPlacement } from './mobile/native-browser-auto-place.ts'
+import { createBrowserControllers } from './mobile/upstream-browser/browser/BrowserController.ts'
+import type { BrowserInjected } from './mobile/upstream-browser/browser/BrowserController.ts'
+import { createBrowserStore } from './mobile/upstream-browser/browser/store.ts'
+import { BrowserTitle } from './mobile/upstream-browser/view/BrowserTitle.tsx'
+import { en as browserEn, zh as browserZh } from './mobile/upstream-browser/locales.ts'
+import type { AndroidBrowserBodyProps } from './mobile/browser-tab.tsx'
+import type { NativeBrowserControlsInjected } from './mobile/native-browser-adapter.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { IncomingDraftConsumer } from './mobile/incoming-draft.ts'
 
 // Contract exports only (export-convergence rule): the plugin surface is
@@ -130,6 +138,14 @@ function injectStyle(id: string, css: string): () => void {
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  // SnapshotPanel is owned by the header actions seat, so promote that header only while it is open.
+  ctx.effect(() => injectStyle('snapshot-panels', SNAPSHOT_PANELS_CSS), 'ui-responsive: snapshot panel paint')
+  ctx.effect(() => {
+    const observer = new SnapshotPanelsObserver()
+    observer.attach()
+    return () => { observer.detach() }
+  }, 'ui-responsive: snapshot panel ancestor ownership')
+
   // ── Phone form ──────────────────────────────────────────────────────────
 
   // The narrow-form stylesheet: track/drawer geometry plus the top-inset and
@@ -379,44 +395,77 @@ export function apply(ctx: ClientContext): void {
     return () => { marker.detach() }
   }, 'ui-responsive: session id marker for tool-row file links')
 
-  // Sidebar AI browser workbench (plan §7.4 / SIDEBAR-BROWSER-PLAN; user constraint U-1):
-  // the entry is a tab TYPE registered next to the upstream「工作区文件」type — its guide
-  // entry is the sibling card in the same「文件」panel — and the body draws the tier report
-  // served by the host half (plugins/dsh-android-browser, read-only route, plugin-side auth).
-  ctx.effect(() => {
-    const tabs = ctx.get('sidebarRightTabs')
-    if (tabs === undefined) return () => {}
-    return tabs.register(browserTabDefinition())
-  }, 'ui-responsive: AI browser tab type')
-  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
-    name: 'sidebar.right.pane.tab',
-    key: BROWSER_TAB_ID,
-  }, BrowserTab))
-
-  // ── AI 浏览器：模型驱动后自动「落位」到右侧栏（0.14.0 P0-2，用户语义；0.14.1 块 D） ──────
-  //
-  // 用户原话：「顶栏就是浏览器标签页切换；AI 打开浏览器后应自动在侧边栏注册/切到该面板，
-  // 人无需再点一下才符合语义。」随后澄清为：**收起状态下自动开窗（注册 tab），但不强制展开**
-  // —— 人手动展开时就能看见已经打开的浏览器界面。
-  //
-  // 0.14.1 块 D（已知 issue #1）修正两处**在源码里实证**的缺陷，判据与实现见
-  // `mobile/browser-auto-place.ts`（本处只做接线，不再内联策略）：
-  //  A. 落位必须绑定**发起动作的会话**（壳侧 `browserHostStatus().ownerSessionId`，且只在它与
-  //     `<html data-dsh-session-id>` 的当前会话一致时才动作）——读全局状态后调
-  //     `ctx.sidebarRight.openTab` 会落在**上屏/焦点会话**上（跨会话污染）。
-  //  B. 落位必须走**带会话的入口** `openTabIn(ownerSessionId, kind)`：`openTab` 内部第一条 op 是
-  //     `planSetExpanded(state, true)`（`ui-sidebar-right/src/client/stores.ts` 的 `openContent`），
-  //     收起态下调它必然强制展开。收起态一律只记 per-session `pending`。
-  ctx.effect(() => {
-    const placement = new BrowserAutoPlace({
-      kind: BROWSER_TAB_KIND,
-      status: () => window.androidBridge?.browserHostStatus?.(),
-      currentSessionId: domCurrentSessionId,
-      collapsed: domCollapsedNow,
-      sidebar: () => (ctx.get('sidebarRight') as BrowserSidebarFace | undefined),
+  // Browser is an extension-band replacement; SidebarRight still owns guide, tabs and docking.
+  ctx.inject(['locale', 'sidebarRight', 'sidebarRightTabs'], (scope) => {
+    const namespace = 'androidSidebarBrowser'
+    const t = scope.locale.bind(namespace)
+    const store = createBrowserStore()
+    const openTabs = scope.sidebarRight.openTabs
+    const placement = new NativeBrowserPlacement({
+      sessions: () => scope.sessions.list.getSnapshot().ids,
+      tabs: () => openTabs.getSnapshot(),
+      mounted: () => scope.sidebarRight.mounted.getSnapshot(),
+      expanded: () => scope.sidebarRight.isExpanded(),
+      open: session => { scope.sidebarRight.openTabIn(session, BROWSER_TAB_KIND, { revealIfOpened: false }) },
+      close: (session, tabId) => { scope.sidebarRight.closeIn(session, tabId) },
+      kind: BROWSER_TAB_KIND, legacyKind: LEGACY_BROWSER_TAB_KIND,
     })
-    return placement.attach()
-  }, 'ui-responsive: AI browser auto-place into right sidebar (session-addressed, deferred while collapsed)')
+    const controllers = new Map<AndroidBrowserBodyProps['sessionId'], BrowserInjected & NativeBrowserControlsInjected>()
+    scope.effect(() => scope.locale.register(namespace, { zh: browserZh, en: browserEn }), 'ui-responsive.browser.copy')
+    scope.effect(() => scope.sidebarRightTabs.register(browserTabDefinition(t)), 'ui-responsive.browser.type')
+    scope.effect(() => scope.sidebarRightTabs.register(legacyBrowserTabDefinition(t)), 'ui-responsive.browser.legacy-type')
+    for (const kind of [BROWSER_TAB_KIND, LEGACY_BROWSER_TAB_KIND]) {
+      scope.effect(() => scope.sidebarRight.registerCloseHandler(kind, (session, tab) => {
+        placement.for(session).closeUi(tab.id)
+      }), 'ui-responsive.browser.explicit-close')
+    }
+    scope.effect(() => async () => {
+      placement.dispose()
+      await Promise.all([...controllers.values()].map(controller => controller.dispose()))
+      controllers.clear()
+    }, 'ui-responsive.browser.frames')
+    for (const key of [BROWSER_TAB_ID, LEGACY_BROWSER_TAB_ID]) {
+      scope.effect(() => scope.slots.inject('sidebar.right.pane.tab', () => scope.slots.register({
+        name: 'sidebar.right.pane.tab', key, locale: namespace, store,
+        inject: (session, actions) => {
+          const existing = controllers.get(session)
+          if (existing !== undefined) { existing.rebind(actions); return existing }
+          const native = placement.for(session)
+          const neutral = createBrowserControllers(actions, native.createPage,
+            tabId => openTabs.getSnapshot().some(tab => tab.sessionId === session && tab.tabId === tabId))
+          const controller: BrowserInjected & NativeBrowserControlsInjected = {
+            ...neutral,
+            keyedHooks: { ...neutral.keyedHooks, nativeBrowserState: native.controlSource },
+            setBrowserVisible: (tabId, visible) => { native.setVisible(tabId, visible) },
+            setBrowserIdentity: (tabId, desktop) => { native.setIdentity(tabId, desktop) },
+            setBrowserViewport: (tabId, width, height) => { native.setViewport(tabId, width, height) },
+            refreshBrowserStatus: tabId => { native.refreshStatus(tabId) },
+            closeBrowserTab: tabId => { scope.sidebarRight.closeIn(session, tabId) },
+          }
+          controllers.set(session, controller)
+          return controller
+        },
+      }, BrowserTab)), 'ui-responsive.browser.body')
+      scope.effect(() => scope.slots.inject('sidebar.right.pane.tab.title', () => scope.slots.register({
+        name: 'sidebar.right.pane.tab.title', key, store,
+      }, BrowserTitle)), 'ui-responsive.browser.title')
+    }
+    scope.effect(() => scope.slots.inject('sidebar.right.tab.menu.item', () => scope.slots.register({
+      name: 'sidebar.right.tab.menu.item', id: 'android-browser.native-controls', locale: namespace,
+      inject: (session: SessionId): NativeBrowserControlsInjected => {
+        const native = placement.for(session)
+        return {
+          keyedHooks: { nativeBrowserState: native.controlSource },
+          setBrowserVisible: (tabId, visible) => { native.setVisible(tabId, visible) },
+          setBrowserIdentity: (tabId, desktop) => { native.setIdentity(tabId, desktop) },
+          setBrowserViewport: (tabId, width, height) => { native.setViewport(tabId, width, height) },
+          refreshBrowserStatus: tabId => { native.refreshStatus(tabId) },
+          closeBrowserTab: tabId => { scope.sidebarRight.closeIn(session, tabId) },
+        } satisfies NativeBrowserControlsInjected
+      },
+    }, BrowserTabMenu)), 'ui-responsive.browser.menu')
+    scope.effect(() => placement.attach(), 'ui-responsive.browser.native-tab-placement')
+  })
 
   // Mobile reference menu (apk #163): rows get a leading checkbox (multi-select) and a
   // directory row body drills in instead of referencing the folder; upstream keeps the

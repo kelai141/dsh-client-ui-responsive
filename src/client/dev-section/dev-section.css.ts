@@ -209,6 +209,34 @@ export const DEV_SECTION_CSS: string = `
 }
 .dsh-screen-control-detail strong { color: var(--dsw-alias-label-primary); }
 
+.dsh-root-access-card {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+.dsh-root-access-card p { margin: 0; overflow-wrap: anywhere; }
+.dsh-root-access-card .dsh-screen-control-state { max-width: 45%; text-align: center; }
+.dsh-root-step { display: grid; gap: 8px; min-width: 0; }
+.dsh-root-step + .dsh-root-step { padding-top: 12px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dsh-root-access-card .dsh-dev-btn { min-height: 44px; width: 100%; }
+.dsh-root-access-card .dsh-dev-link { min-height: 44px; justify-self: start; text-align: left; }
+.dsh-root-toggle-row { display: flex; align-items: center; gap: 14px; min-height: 44px; }
+.dsh-root-toggle-row > span { flex: 1 1 auto; }
+.dsh-root-toggle-row > input { flex: 0 0 auto; width: 24px; height: 24px; margin: 0; accent-color: #4d6bfe; }
+.dsh-root-maintenance { padding-top: 8px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dsh-root-maintenance summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--dsw-alias-label-primary); }
+.dsh-root-maintenance[open] { display: grid; gap: 8px; }
+.dsh-root-access-card button:focus-visible,
+.dsh-root-access-card input:focus-visible,
+.dsh-root-maintenance summary:focus-visible { outline: 2px solid #4d6bfe; outline-offset: 3px; }
+@media (min-width: 640px) {
+  .dsh-root-access-card .dsh-dev-btn { width: auto; justify-self: start; min-width: 160px; }
+}
+
 .dsh-dev-error {
   color: var(--dsw-alias-state-error-primary);
   font-size: 12px;

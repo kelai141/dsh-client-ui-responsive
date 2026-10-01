@@ -1,375 +1,153 @@
 // @vitest-environment jsdom
-// 0.14.0 极简浏览器面板：顶部地址 + 单按钮，底部分辨率 + PC/手机；无其它文字与控件。
-import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
+// Source fixtures for target 0.2; written only, never executed in this delegated change.
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { BROWSER_TAB_ID, BROWSER_TAB_KIND, BrowserTab, browserTabDefinition } from '../src/client/mobile/browser-tab.tsx'
-import { SESSION_ID_ATTRIBUTE } from '../src/client/mobile/session-marker.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { PaneId, TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
+import type { KeyedSnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import { BrowserTab, browserTabDefinition, legacyBrowserTabDefinition, BROWSER_TAB_ID, BROWSER_TAB_KIND } from '../src/client/mobile/browser-tab.tsx'
+import type { AndroidBrowserBodyProps } from '../src/client/mobile/browser-tab.tsx'
+import type { NativeBrowserControlState } from '../src/client/mobile/native-browser-adapter.ts'
+import type { BrowserControllerState } from '../src/client/mobile/upstream-browser/browser/BrowserController.ts'
+import { emptyBrowserFrame } from '../src/client/mobile/upstream-browser/browser/BrowserFrame.ts'
+import { createBrowserStore } from '../src/client/mobile/upstream-browser/browser/store.ts'
+import { zh } from '../src/client/mobile/upstream-browser/locales.ts'
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-let root: Root | undefined
-let host: HTMLElement | undefined
+/**
+ * Isolate the barrel: `browser-tab.tsx` takes exactly two symbols from ui-primitives, but the package's
+ * compiled `lib/index.js` re-exports the entire component library — pulling shiki (+ its langs/themes),
+ * simple-icons, lexical and the CSS modules in with it. That transitive graph is a build-time concern of
+ * the packaged client, not of this unit under test, and resolving it here would mean installing a second
+ * copy of the whole UI dependency tree just to run one spec.
+ *
+ * The spec asserts tab-definition/wire behavior and the native control row, never the artwork or the menu
+ * button rendering, so a minimal stand-in is faithful to what is being tested. 用 Proxy 而不是逐个具名导出：
+ * 官方 BrowserBody 从同一个 barrel 里取 8 个符号（Button/Tooltip/5 个 Icon/2 个常量），具名清单会随
+ * vendored 上游版本漂移，Proxy 对新符号自动兜底。
+ *
+ * 顺序约束：本调用**不能**紧跟在以 `(` 开头的那行前面（原写法 `vi.mock(...)` 后跟
+ * `(globalThis as ...)` 会被解析成 `vi.mock(...)(globalThis...)` ⇒ TypeError: vi.mock(...) is not a
+ * function）——ASI 不会在 `(` 前补分号，空行也救不了。故把它挪到 globalThis 赋值之后。
+ */
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => {
+  // 只声明本 spec 可达面真正用到的符号（browser-tab.tsx + vendored BrowserBody/BrowserTitle 的并集）。
+  // 逐个具名而不是 Proxy：Proxy 对任意属性都返回函数会让 React 的 thenable/$typeof 探测递归，
+  // vitest 直接挂死（实测 10 分钟不返回）。具名清单漂移时测试会以「缺少导出」立刻判红，是可接受的信号。
+  const passThrough = (props: { children?: unknown }): unknown => props.children ?? null
+  return {
+    Button: passThrough, Tooltip: passThrough, MenuItemButton: passThrough, GuideArtworkBrowser: passThrough,
+    IconChevronLeftOutlineRegular: passThrough, IconChevronRightOutlineRegular: passThrough,
+    IconLinkOutlineRegular: passThrough, IconRefreshOutlineRegular: passThrough,
+    IconRightUpOutlineRegular: passThrough, IconGlobeOutlineRegular: passThrough,
+    SHIELD_OUTLINE_PATH: 'M0 0', ICON_REGULAR_STROKE: 1.5,
+  }
+})
 
-function state(overrides = {}) {
-  return JSON.stringify({
-    ok: true,
-    available: true,
-    created: false,
-    visible: false,
-    url: 'about:blank',
-    title: '',
-    pageGeneration: 0,
-    viewportId: 'device',
-    viewportWidth: 0,
-    viewportHeight: 0,
-    identityId: 'android-real',
-    atTop: true,
-    scrollDirection: 0,
-    reason: '',
-    ...overrides,
-  })
+const SESSION = 'session-test' as SessionId
+const TAB = 'ui-browser' as TabId
+const t: TranslateNS<'androidSidebarBrowser'> = (key, params) => {
+  const template = zh[key]
+  return params === undefined ? template : template.replace(/\{(\w+)\}/g, (_match, name: string) => String(params[name]))
+}
+let root: Root | undefined
+let host: HTMLDivElement | undefined
+
+function keyedHook<T>(value: () => T): KeyedSnapshotSelectorHook<T> {
+  const hook = <Selected,>(_key: string, select?: (snapshot: T | undefined) => Selected): T | Selected =>
+    select === undefined ? value() : select(value())
+  return hook as KeyedSnapshotSelectorHook<T>
 }
 
-async function render(bridge?: Record<string, unknown>): Promise<HTMLElement> {
-  delete window.androidBridge
-  if (bridge !== undefined) window.androidBridge = bridge as never
+async function mount(nativeOverrides: Partial<NativeBrowserControlState> = {}, visible = true) {
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
-  const useTabInfo = () => ({ tab: { signal: new AbortController().signal } })
-  await act(async () => { root!.render(<BrowserTab {...({ sessionId: 'session-test', useTabInfo } as never)} />) })
-  return host
-}
-
-/**
- * Wait until an assertion about the mounted tree holds, flushing React between attempts.
- *
- * The panel publishes its availability through `useState` (seeded by the initial effect, then
- * rewritten by a 300 ms interval), so a synchronous read right after `act()` depends on which
- * pass happened to land first — and running the whole suite changes that ordering. That is how
- * these cases flipped between green and red with no code change.
- *
- * Deliberately built on `act(async () => {})` alone (microtask + React flush) and **not** on
- * `setTimeout`: this file also contains a block that enables fake timers, so a timer-based wait
- * would hang forever whenever those timers leak, turning a load-dependent red into a hard red.
- * @param el - mounted host element.
- * @param assert - assertion to poll; it must throw while the fact is not yet true.
- */
-async function waitForRender(el: HTMLElement, assert: () => void): Promise<void> {
-  let last: unknown
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    await act(async () => {})
-    try {
-      assert()
-      return
-    } catch (error) { last = error }
+  const store = createBrowserStore().create('android-browser-view-fixture')
+  let info: ReturnType<AndroidBrowserBodyProps['useTabInfo']> = {
+    sidebar: { expanded: true, fullscreen: false }, panel: { id: 'pane' as PaneId },
+    tab: { id: TAB, kind: 'browser', title: zh['type.label'], contentId: 'sidebar://browser/fixture', visible,
+      navigation: { address: 'sidebar://browser/fixture', params: undefined, revision: 0 }, signal: new AbortController().signal,
+      actions: { bindCommands: vi.fn(() => vi.fn()), openResource: vi.fn(), openTab: vi.fn(), close: vi.fn() } },
   }
-  throw last
+  const native: NativeBrowserControlState = { nativeTabId: 'native-1', available: true, reason: '',
+    profileAvailable: true, profileReason: '', identityId: 'android-real', viewportWidth: 390, viewportHeight: 844,
+    ...nativeOverrides }
+  const state: BrowserControllerState = { frame: emptyBrowserFrame(), restoreTarget: undefined, addressFailure: undefined, addressRevision: 0 }
+  const callbacks = {
+    mount: vi.fn(() => vi.fn()), dispose: vi.fn(async () => {}), rebind: vi.fn(), loadUrl: vi.fn(), restore: vi.fn(),
+    goBack: vi.fn(), goForward: vi.fn(), reload: vi.fn(), setSandbox: vi.fn(),
+    setBrowserVisible: vi.fn(), setBrowserIdentity: vi.fn(), setBrowserViewport: vi.fn(), refreshBrowserStatus: vi.fn(), closeBrowserTab: vi.fn(),
+  }
+  const props = {
+    ...callbacks, sessionId: SESSION, useTabInfo: () => info, t, actions: store.actions,
+    useStore: <Selected,>(select: (snapshot: ReturnType<typeof store.getSnapshot>) => Selected): Selected => select(store.getSnapshot()),
+    useBrowserState: keyedHook(() => state), useNativeBrowserState: keyedHook(() => native),
+  } as AndroidBrowserBodyProps
+  const render = async (): Promise<void> => { await act(async () => { root!.render(<BrowserTab {...props} />) }) }
+  await render()
+  return { host, callbacks, hide: async () => { info = { ...info, tab: { ...info.tab, visible: false } }; await render() } }
 }
-
-function setReactInputValue(input: HTMLInputElement, value: string): void {
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-  if (setter === undefined) throw new Error('HTMLInputElement.value setter missing')
-  setter.call(input, value)
-  input.dispatchEvent(new Event('input', { bubbles: true }))
-}
-
-beforeEach(() => {
-  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
-})
 
 afterEach(async () => {
-  if (root !== undefined) {
-    await act(async () => { root!.unmount() })
-    root = undefined
-  }
+  if (root !== undefined) await act(async () => { root!.unmount() })
+  root = undefined
   host?.remove()
   host = undefined
-  delete window.androidBridge
+  localStorage.clear()
   vi.restoreAllMocks()
 })
 
-describe('AI 浏览器 Files 侧栏工作台（0.14.0 极简面板）', () => {
-  it('tab 类型：extension 带、guide 卡片与工作区文件同级', () => {
-    const def = browserTabDefinition()
-    expect(def.id).toBe(BROWSER_TAB_ID)
-    expect(def.kind).toBe(BROWSER_TAB_KIND)
-    expect(def.priority).toBe('extension')
-    expect(def.patterns).toBeUndefined()
-    expect(def.title('')).toBe('AI 浏览器')
-    expect(def.guide).toHaveLength(1)
-    expect(def.guide?.[0].order).toBeGreaterThan(10)
-    expect(def.guide?.[0].description?.()).toContain('右侧栏')
+describe('official browser chrome over the Android adapter', () => {
+  it('takes the builtin browser kind with one guide and a guide-less legacy resolver', () => {
+    const current = browserTabDefinition(t)
+    const legacy = legacyBrowserTabDefinition(t)
+    expect(current).toMatchObject({ id: BROWSER_TAB_ID, kind: BROWSER_TAB_KIND, priority: 'extension', multiple: true, keepMounted: true })
+    expect(current.guide).toHaveLength(1)
+    expect(current.guide?.[0].icon).toBeDefined()
+    expect(legacy.kind).toBe('android-browser')
+    expect(legacy.id).not.toBe(current.id)
+    expect(legacy.guide).toEqual([])
   })
 
-  it('host 缺席：给原因与下一步，工位仍在场（S3-18 反向旧契约）', async () => {
-    // 旧契约是「无任何说明文字 + 控件一律 disabled」——审查档 §3.3 第 18 行判它是**缺陷**：
-    // 用户看到能点但点不动的面板，屏上没有一个字解释。现在必须给原因 + 下一步。
-    const el = await render()
-    expect(el.textContent).not.toContain('BrowserHost')  // 仍不得泄漏内部术语
-    expect(el.querySelector('select')).toBeNull()
-    expect(el.querySelector('[data-testid="browser-stage"]')).not.toBeNull()
-    expect(el.textContent).toContain('内置浏览器不可用')
-    // 不再是「禁用的控件」，而是根本不给会误导的控件。
-    expect(el.querySelector('input[aria-label="浏览器地址"]')).toBeNull()
-    expect(el.querySelector('input[aria-label="分辨率"]')).toBeNull()
-  })
-
-  it('打开调用原生 BrowserHost 并发布 bounds；页面已开时同一按钮变刷新', async () => {
-    const browserHostBounds = vi.fn(() => state())
-    const browserHostShow = vi.fn(() => state({ created: true, visible: true, url: 'https://example.com', pageGeneration: 1 }))
-    const browserHostReload = vi.fn(() => state({ created: true, visible: true, url: 'https://example.com', pageGeneration: 2 }))
-    const el = await render({
-      browserHostStatus: () => state({ created: true, visible: true, url: 'https://example.com', pageGeneration: 1 }),
-      browserHostBounds,
-      browserHostShow,
-      browserHostReload,
-    })
-    const input = el.querySelector('input[aria-label="浏览器地址"]') as HTMLInputElement
-    await act(async () => { setReactInputValue(input, 'example.com') })
-    await act(async () => { (el.querySelector('button[type="submit"]') as HTMLButtonElement).click() })
-    expect(browserHostShow).toHaveBeenCalledTimes(1)
-    const showPayload = JSON.parse(browserHostShow.mock.calls[0][0] as string) as { url: string; session: string }
-    expect(showPayload.url).toBe('example.com')
-    expect(browserHostBounds).toHaveBeenCalled()
-    expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).textContent).toBe('刷新')
-    await act(async () => { (el.querySelector('button[type="submit"]') as HTMLButtonElement).click() })
-    expect(browserHostReload).toHaveBeenCalledTimes(1)
-  })
-
-  it('底部分辨率输入提交后按 CSS 视口下发（宽×高）', async () => {
-    const browserHostViewport = vi.fn(() => state({ created: true, visible: true, url: 'https://example.com' }))
-    const el = await render({
-      browserHostStatus: () => state({ created: true, visible: true, url: 'https://example.com' }),
-      browserHostBounds: vi.fn(() => state()),
-      browserHostViewport,
-    })
-    const input = el.querySelector('input[aria-label="分辨率"]') as HTMLInputElement
-    await act(async () => { setReactInputValue(input, '1080x1920') })
-    const form = input.closest('form') as HTMLFormElement
-    await act(async () => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
-    expect(browserHostViewport).toHaveBeenCalledTimes(1)
-    const payload = JSON.parse(browserHostViewport.mock.calls[0][0] as string) as { width: number; height: number }
-    expect(payload.width).toBe(1080)
-    expect(payload.height).toBe(1920)
-  })
-
-  it('PC/手机切换把身份档与该模式记住的分辨率合并为一次下发', async () => {
-    const browserHostIdentity = vi.fn(() => state({ created: true, visible: true }))
-    const browserHostViewport = vi.fn(() => state({ created: true, visible: true }))
-    const el = await render({
-      browserHostStatus: () => state({ created: true, visible: true, url: 'https://example.com' }),
-      browserHostBounds: vi.fn(() => state()),
-      browserHostIdentity,
-      browserHostViewport,
-    })
-    const mode = [...el.querySelectorAll('button')].find((button) => button.textContent === '手机网页') as HTMLButtonElement
-    await act(async () => { mode.click() })
-    expect(browserHostIdentity).toHaveBeenCalledTimes(1)
-    const identity = JSON.parse(browserHostIdentity.mock.calls[0][0] as string) as {
-      profile: string; width: number; height: number
+  it('renders the official address/start/navigation UI and a separate native control row', async () => {
+    const view = await mount()
+    expect(view.host.querySelector('input[aria-label="' + zh['address.placeholder'] + '"]')).not.toBeNull()
+    expect(view.host.textContent).toContain(zh.start)
+    for (const label of [zh.back, zh.forward, zh.reload, zh.go, zh.external]) {
+      expect(view.host.querySelector('button[aria-label="' + label + '"]')).not.toBeNull()
     }
-    expect(identity.profile).toBe('linux-desktop')
-    expect(identity.width).toBe(1280)
-    expect(identity.height).toBe(720)
-    expect(browserHostViewport).not.toHaveBeenCalled()
-  })
-})
-
-/**
- * 找到 apply() 注册的自动落位 effect（用桩 ctx 真跑 apply）。
- *
- * 0.14.1 块 D 后的契约：落位走**带会话的入口** `openTabIn(ownerSessionId, kind)`，且只在
- * 壳侧 `ownerSessionId` 与 `<html data-dsh-session-id>` 一致时才动作——旧契约（无会话身份、
- * 调 mounted `openTab`）正是已知 issue #1 的缺陷 A，已被本轮的回归用例锁定为不许回归。
- */
-async function loadRevealEffect(opts: { status: () => string; openTabIn: (sessionId: string, kind: string, o?: unknown) => void }) {
-  const { apply } = await import('../src/client/index.ts')
-  const effects: Array<{ name: string; run: () => (() => void) | void }> = []
-  const stub = {
-    effect: (cb: () => (() => void) | void, name?: string) => { effects.push({ name: name ?? '', run: cb }); return () => {} },
-    slots: { inject: () => () => {}, register: () => () => {} },
-    get: (key: string) => {
-      if (key === 'sidebarRight') return { openTabIn: opts.openTabIn }
-      if (key === 'sidebarRightTabs') return { register: () => () => {} }
-      return undefined
-    },
-    sessions: { subscribe: () => () => {} },
-    logger: () => ({ warn: () => {} }),
-    on: () => () => {},
-  }
-  ;(globalThis as Record<string, unknown>).window = globalThis.window
-  ;(window as unknown as Record<string, unknown>).androidBridge = { browserHostStatus: opts.status }
-  apply(stub as never)
-  const found = effects.find((e) => e.name.includes('auto-place'))
-  return found
-}
-
-describe('AI 浏览器自动落位到右侧栏（0.14.1 块 D：会话绑定 + 收起时延迟落位）', () => {
-  // `loadRevealEffect` 动态 import 本仓入口并真跑 apply()。这份一次性成本（模块转换 + 装配）
-  // 实测约 4.5s，落在默认 5s 的**每个用例预算**里：空闲时刚够、整套负载下必超时
-  // ——实测「首次观测只建立基线」4489ms 通过、同一用例在满负载下 5000ms 超时。
-  // 超时后残留的假时钟又会污染后面的 block（整棵子树渲染成空）。
-  // 因此把这份一次性成本**移出**用例预算：先以宽预算预热，用例本身只测行为。
-  beforeAll(async () => { await import('../src/client/index.ts') }, 30_000)
-  beforeEach(() => {
-    vi.useFakeTimers()
-    // 默认「侧栏展开」= 展开控件不在场；收起用例单独覆盖。
-    document.body.innerHTML = ''
-    // 上屏会话 = s1（SessionMarker 发布的位置）；壳侧 ownerSessionId 必须与它一致才落位。
-    document.documentElement.setAttribute(SESSION_ID_ATTRIBUTE, 's1')
-  })
-  afterEach(() => {
-    vi.useRealTimers()
-    document.body.innerHTML = ''
-    document.documentElement.removeAttribute(SESSION_ID_ATTRIBUTE)
+    expect(view.host.querySelector('input[aria-label="' + zh['native.viewport'] + '"]')).not.toBeNull()
+    expect(view.host.querySelectorAll('form')).toHaveLength(2)
+    expect(view.host.querySelector('iframe, webview')).toBeNull()
   })
 
-  /** 让 status 可随调用变化，模拟壳侧状态演进。 */
-  function loadWithQueue(frames: string[], openTabIn: (sessionId: string, kind: string, o?: unknown) => void) {
-    let i = 0
-    return loadRevealEffect({
-      status: () => frames[Math.min(i++, frames.length - 1)] ?? '{}',
-      openTabIn,
-    })
-  }
-
-  const page = (gen: number, url = 'https://example.com/', owner = 's1') =>
-    JSON.stringify({ created: true, ownerSessionId: owner, pageGeneration: gen, tabs: [{ tabId: 'tab-1', url }] })
-
-  it('首次观测只建立基线：不动作（避免启动时抢侧栏）', async () => {
-    const calls: unknown[] = []
-    const eff = await loadWithQueue([page(1)], (s, k) => { calls.push({ s, k }) })
-    await act(async () => { eff!.run() })
-    await act(async () => { vi.advanceTimersByTime(3_000) })
-    expect(calls.length).toBe(0)
-  })
-
-  it('出现「新页面」（边沿）时按发起会话落位一次，且不重复触发', async () => {
-    const calls: Array<{ s: string; k: string }> = []
-    const eff = await loadWithQueue([page(1), page(1), page(2), page(2), page(2)], (s, k) => { calls.push({ s, k }) })
-    await act(async () => { eff!.run() })
-    await act(async () => { vi.advanceTimersByTime(5_000) })
-    expect(calls.length).toBe(1)
-    expect(calls[0].k).toBe(BROWSER_TAB_KIND)
-    expect(calls[0].s, '落位必须带发起会话身份（缺陷 A 的判据）').toBe('s1')
-  })
-
-  it('收起态出现新页面：**不落位**（不强制展开），用户展开后补一次', async () => {
-    // 收起态的设备实况 = 上游展开控件在场（权威信号）。
-    document.body.innerHTML = '<button data-sidebar-right-expand="true"></button>'
-    const calls: Array<{ s: string; k: string }> = []
-    const eff = await loadWithQueue([page(1), page(2), page(2), page(2)], (s, k) => { calls.push({ s, k }) })
-    await act(async () => { eff!.run() })
-    await act(async () => { vi.advanceTimersByTime(2_500) })
-    // 收起期间绝不落位——这是用户报「收起后自动展开」的根因。
-    expect(calls.length).toBe(0)
-    // 用户手动展开 -> 补一次落位。
-    document.body.innerHTML = ''
-    await act(async () => { vi.advanceTimersByTime(2_000) })
-    expect(calls.length).toBe(1)
-    expect(calls[0]).toEqual({ s: 's1', k: BROWSER_TAB_KIND })
-  })
-
-  it('页面未创建时不落位（避免开一个空面板）', async () => {
-    const calls: unknown[] = []
-    const eff = await loadWithQueue([JSON.stringify({ created: false })], (s, k) => { calls.push({ s, k }) })
-    await act(async () => { eff!.run() })
-    await act(async () => { vi.advanceTimersByTime(3_000) })
-    expect(calls.length).toBe(0)
-  })
-})
-
-describe('可见性判据：收起 vs 全屏（0.14.0 设备实证三次修正）', () => {
-  beforeEach(() => { vi.useFakeTimers() })
-  afterEach(() => { vi.useRealTimers(); document.body.innerHTML = '' })
-
-  /** 渲一个带舞台的面板，并按给定标记布置祖先链，取回 publishBounds 会发出的 visible。 */
-  async function visibleWith(ancestors: string): Promise<boolean | undefined> {
-    const sent: Array<Record<string, unknown>> = []
-    delete window.androidBridge
-    ;(window as unknown as Record<string, unknown>).androidBridge = {
-      browserHostStatus: () => JSON.stringify({ ok: true, available: true, created: true, visible: true, url: 'https://e.test/', title: '', pageGeneration: 1, viewportId: 'device', viewportWidth: 0, viewportHeight: 0, identityId: 'android-real', ownerSessionId: '', atTop: true, scrollDirection: 0, reason: '' }),
-      browserHostBounds: (raw: string) => { sent.push(JSON.parse(raw) as Record<string, unknown>) },
-      browserHostHide: () => '',
-      browserHostShow: () => '',
-    }
-    const host = document.createElement('div')
-    host.innerHTML = ancestors
-    document.body.appendChild(host)
-    const root = createRoot(host)
-    const useTabInfo = () => ({ tab: { signal: new AbortController().signal } })
-    await act(async () => { root!.render(<BrowserTab {...({ sessionId: 's1', useTabInfo } as never)} />) })
-    await act(async () => { vi.advanceTimersByTime(400) })
+  it('publishes actual tab.visible transitions and hide-only unmount cleanup', async () => {
+    const view = await mount()
+    expect(view.callbacks.setBrowserVisible).toHaveBeenCalledWith(TAB, true)
+    await view.hide()
+    expect(view.callbacks.setBrowserVisible).toHaveBeenLastCalledWith(TAB, false)
     await act(async () => { root!.unmount() })
-    host.remove()
-    return sent.length > 0 ? sent[sent.length - 1].visible as boolean : undefined
-  }
-
-  /**
-   * 语义锁定（0.14.0 四次踩坑后固化）：收起判据**只能**用「上游展开控件是否在场」。
-   * 被否掉的三个候选（各自都会造成用户可见缺陷）：
-   *   - `data-sidebar-right-open`：收起态仍为 "true" → 恒判可见（覆盖层压在聊天上）
-   *   - `[data-rightbar-col]` 的 collapsed 属性：该元素上根本没有此属性
-   *   - frame 上的 `data-rightbar-collapsed`：**恒为 "true"** 的常量 → 恒判收起（页面永久隐藏，
-   *     并让虚拟屏永不落位——正是 verify-vdisplay-viewer 回归的原因）
-   */
-  it('收起判据用「展开控件在场」，且不再使用任何常量式属性', async () => {
-    const src = await import('node:fs').then((fs) => fs.readFileSync('src/client/mobile/browser-tab.tsx', 'utf8'))
-    // 必须用权威信号
-    expect(src).toContain("document.querySelector('[data-sidebar-right-expand]')")
-    // 不得把常量属性当状态读（注释里可以解释，但代码中不得出现读它的表达式）
-    expect(src).not.toMatch(/querySelector(All)?\(\s*'\[data-rightbar-collapsed[^)]*\)\s*!==\s*null/)
-    expect(src).not.toMatch(/closest\(\s*'\[data-rightbar-collapsed/)
+    root = undefined
+    expect(view.callbacks.closeBrowserTab).not.toHaveBeenCalled()
   })
 
-  it('自动落位循环同样用「展开控件在场」作为收起判据（0.14.1 块 D 后策略在 mobile/browser-auto-place.ts）', async () => {
-    // 策略自 index.ts 抽到独立模块（缺陷 A/B 的修法需要可单测的会话绑定），判据位置随之迁移：
-    // 落位面见 browser-auto-place.ts，接线面见 index.ts（两者都必须只用权威收起信号）。
-    const src = await import('node:fs').then((fs) => fs.readFileSync('src/client/mobile/browser-auto-place.ts', 'utf8'))
-    expect(src).toContain("document.querySelector('[data-sidebar-right-expand]')")
-    expect(src).not.toMatch(/querySelector\(\s*'\[data-rightbar-collapsed[^)]*\)\s*!==\s*null/)
-    expect(src).not.toMatch(/closest\(\s*'\[data-rightbar-collapsed/)
-
-    const wiring = await import('node:fs').then((fs) => fs.readFileSync('src/client/index.ts', 'utf8'))
-    expect(wiring).toContain('domCollapsedNow')
-    expect(wiring).not.toMatch(/querySelector\(\s*'\[data-rightbar-collapsed[^)]*\)\s*!==\s*null/)
-    // 反向：旧的 mounted 入口不得再出现在落位接线里（那是缺陷 A 的调用形态）。
-    expect(wiring).not.toContain('sidebar.openTab?.(')
-  })
-})
-// ── 0.14.1 批 9（§3.3 S3-18）：桥不在场时不得是一块无解释的死面板 ──────────────
-describe('BrowserTab 不可用时的解释（S3-18）', () => {
-  // 本文件另有一个启用**假时钟**的 block；它一旦在负载下超时，假时钟可能残留到本 block，
-  // 使 `act()` 里的 React 调度再也不推进（表现为整棵子树渲染成空）。这里显式收回真实时钟，
-  // 不依赖邻居的 afterEach 一定跑过。
-  beforeEach(() => { vi.useRealTimers() })
-  it('桥缺席：给出原因与下一步，且不再渲染整块禁用控件', async () => {
-    const el = await render(undefined)
-    await waitForRender(el, () => {
-      expect(el.querySelector('[data-browser-unavailable="true"]'), '必须标记为不可用态').toBeTruthy()
-    })
-    expect(el.textContent).toContain('内置浏览器不可用')
-    expect(el.textContent).toContain('重新安装或更新应用')
-    expect(el.textContent).toContain('系统浏览器')
-    // 旧实现是「一屏 disabled 控件 + 没有一个字」——这里输入框必须不再出现。
-    expect(el.querySelector('input[aria-label="浏览器地址"]')).toBeNull()
+  it('surfaces a native unsupported-profile reason rather than rendering a ready page', async () => {
+    const view = await mount({ profileAvailable: false, profileReason: 'android-profile-isolation-unsupported' })
+    expect(view.host.textContent).toContain('android-profile-isolation-unsupported')
+    expect(view.host.textContent).toContain('浏览器身份档不可用')
   })
 
-  it('壳侧明确回报 available=false 时同样给解释', async () => {
-    const el = await render({ browserHostStatus: () => state({ available: false, ok: false }) })
-    await waitForRender(el, () => {
-      expect(el.textContent).toContain('内置浏览器不可用')
-    })
-  })
-
-  it('可用时不得出现不可用说明（不误报）', async () => {
-    const el = await render({ browserHostStatus: () => state() })
-    // 可用态由 useState 发布（首帧 effect + 300ms 轮询各写一次），故断言必须等这一事实落定。
-    await waitForRender(el, () => {
-      expect(el.querySelector('input[aria-label="浏览器地址"]')).toBeTruthy()
-    })
-    expect(el.querySelector('[data-browser-unavailable="true"]')).toBeNull()
+  it('routes PC profile and viewport actions to the owning UI occurrence', async () => {
+    const view = await mount()
+    const pc = Array.from(view.host.querySelectorAll('button')).find(button => button.textContent === zh['native.desktop'])!
+    await act(async () => { pc.click() })
+    expect(view.callbacks.setBrowserIdentity).toHaveBeenCalledWith(TAB, true)
+    const input = view.host.querySelector<HTMLInputElement>('input[aria-label="' + zh['native.viewport'] + '"]')!
+    await act(async () => { input.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
+    expect(view.callbacks.setBrowserViewport).toHaveBeenCalledWith(TAB, 390, 844)
   })
 })
