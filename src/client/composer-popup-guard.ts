@@ -163,8 +163,23 @@ export class ComposerPopupGuard {
       this.clear()
       return
     }
-    const popups = Array.from(card.querySelectorAll<HTMLElement>("[role='menu'], [role='listbox']"))
-    if (popups.length === 0) {
+    const popups = new Set(card.querySelectorAll<HTMLElement>("[role='menu'], [role='listbox']"))
+    const modelMenus = new Set<HTMLElement>()
+    // ModelSelect renders its menu through a body portal. Resolve that exact
+    // surface from the open trigger's aria-controls rather than relying on a
+    // composer-descendant selector or localized accessible name.
+    for (const trigger of card.querySelectorAll<HTMLElement>("[aria-haspopup='menu'][aria-expanded='true'][aria-controls]")) {
+      const controlledIds = trigger.getAttribute('aria-controls')?.trim().split(/\s+/) ?? []
+      for (const id of controlledIds) {
+        const controlled = document.getElementById(id)
+        const role = controlled?.getAttribute('role')
+        if (!(controlled instanceof HTMLElement) || (role !== 'menu' && role !== 'group') ||
+          controlled.getAttribute('data-menu-material') !== 'translucent') continue
+        popups.add(controlled)
+        modelMenus.add(controlled)
+      }
+    }
+    if (popups.size === 0) {
       this.clear()
       return
     }
@@ -176,10 +191,17 @@ export class ComposerPopupGuard {
     const measured: Element[] = topbar === null ? [] : [topbar, card]
 
     for (const popup of popups) {
-      const surface = surfaceOf(popup)
+      // ModelSelect keeps the controlled portal surface as role=menu while
+      // replacing its contents as the user drills into the model list.
+      const surface = modelMenus.has(popup) ? popup : surfaceOf(popup)
       styled.add(surface)
       styled.add(popup)
       measured.push(surface, popup)
+      if (modelMenus.has(popup)) {
+        surface.setAttribute('data-dsh-mobile-model-menu', '')
+        if (window.androidBridge !== undefined) surface.setAttribute('data-dsh-android-model-menu', '')
+        else surface.removeAttribute('data-dsh-android-model-menu')
+      }
 
       for (const element of surface === popup ? [popup] : [popup, surface]) {
         if (element.style.getPropertyValue('--dsh-mobile-popup-max-width') !== widthCap) {
@@ -199,7 +221,7 @@ export class ComposerPopupGuard {
         rect.bottom,
         topbarBottom,
         chromeHeight(popup),
-        popup.getAttribute('role') === 'menu' ? MENU_HEIGHT_CAP : LISTBOX_HEIGHT_CAP,
+        modelMenus.has(popup) || popup.getAttribute('role') === 'menu' ? MENU_HEIGHT_CAP : LISTBOX_HEIGHT_CAP,
       )}px`
       if (popup.style.getPropertyValue('--dsh-mobile-menu-max-height') !== heightCap) {
         popup.style.setProperty('--dsh-mobile-menu-max-height', heightCap)
@@ -225,6 +247,8 @@ export class ComposerPopupGuard {
     element.style.removeProperty('--dsh-mobile-popup-shift')
     element.style.removeProperty('--dsh-mobile-menu-max-height')
     element.removeAttribute('data-dsh-popup')
+    element.removeAttribute('data-dsh-mobile-model-menu')
+    element.removeAttribute('data-dsh-android-model-menu')
   }
 
   private syncObserved(next: Element[]): void {
@@ -238,8 +262,8 @@ export class ComposerPopupGuard {
     if (record.target instanceof Element && record.target.closest('[data-composer-card]') !== null) return true
     return [...record.addedNodes, ...record.removedNodes].some(node => {
       if (!(node instanceof Element)) return false
-      return node.matches('[data-composer-card], [role="listbox"], [role="menu"]') ||
-        node.querySelector('[data-composer-card], [role="listbox"], [role="menu"]') !== null
+      return node.matches('[data-composer-card], [role="listbox"], [role="menu"], [data-dsh-mobile-model-menu]') ||
+        node.querySelector('[data-composer-card], [role="listbox"], [role="menu"], [data-dsh-mobile-model-menu]') !== null
     })
   }
 }

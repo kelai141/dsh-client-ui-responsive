@@ -365,3 +365,67 @@ describe('failure direction', () => {
     expect(uplink).toHaveBeenLastCalledWith(true)
   })
 })
+
+
+describe('Android model menu portal', () => {
+  it('publishes the open menu and consumes Escape even when its handler prevents default', async () => {
+    signal.attach()
+    const menu = document.createElement('div')
+    menu.setAttribute('role', 'menu')
+    document.body.appendChild(menu)
+    await flush()
+    expect(window.__dshBackKinds).toEqual([])
+    menu.setAttribute('data-dsh-android-model-menu', '')
+    menu.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { event.preventDefault(); menu.remove() }
+    })
+    await flush()
+    expect(window.__dshBackKinds).toEqual(['model-menu'])
+    expect(uplink).toHaveBeenLastCalledWith(true)
+    expect(window.__dshBack?.()).toBe(true)
+    await flush()
+    expect(window.__dshBackKinds).toEqual([])
+    expect(uplink).toHaveBeenLastCalledWith(false)
+  })
+
+  it('lets the upstream drilled pane handle one level before closing on the next Back', async () => {
+    signal.attach()
+    const menu = document.createElement('div')
+    menu.setAttribute('data-dsh-android-model-menu', '')
+    menu.setAttribute('role', 'group')
+    document.body.appendChild(menu)
+    let drilled = true
+    menu.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      if (drilled) { drilled = false; menu.setAttribute('role', 'menu') }
+      else menu.remove()
+    })
+    await flush()
+    expect(window.__dshBack?.()).toBe(true)
+    await flush()
+    expect(menu.isConnected).toBe(true)
+    expect(window.__dshBackKinds).toEqual(['model-menu'])
+    expect(window.__dshBack?.()).toBe(true)
+    await flush()
+    expect(menu.isConnected).toBe(false)
+    expect(window.__dshBackKinds).toEqual([])
+  })
+
+  it('detects a wide Android model menu without the narrow form marker and ignores other menus', async () => {
+    setPhoneForm(false)
+    signal.attach()
+    const menu = document.createElement('div')
+    menu.setAttribute('role', 'menu')
+    menu.setAttribute('data-dsh-mobile-model-menu', '')
+    document.body.appendChild(menu)
+    await flush()
+    expect(window.__dshBackKinds).toEqual([])
+    menu.setAttribute('data-dsh-android-model-menu', '')
+    await flush()
+    expect(window.__dshBackKinds).toEqual(['model-menu'])
+    menu.removeAttribute('data-dsh-android-model-menu')
+    await flush()
+    expect(window.__dshBackKinds).toEqual([])
+  })
+})
