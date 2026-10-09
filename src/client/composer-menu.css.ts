@@ -42,6 +42,22 @@ html[data-dsh-mobile-form] [data-composer-card] [role='menu'] {
   max-height: var(--dsh-mobile-menu-max-height, none) !important;
 }
 
+/* ModelSelect is portaled to body, so its role surface is outside the composer
+   selectors above. The guard marks only the exact aria-controls target. */
+html[data-dsh-mobile-form] body [data-dsh-mobile-model-menu] {
+  max-width: var(--dsh-mobile-popup-max-width, min(96vw, 420px)) !important;
+  max-height: var(--dsh-mobile-menu-max-height, none) !important;
+}
+
+/* Android WebView cannot reliably reproduce the desktop translucent menu
+   backdrop. The popup guard tags only an aria-controls-resolved model menu when
+   the Android bridge is present. Keep this independent of the narrow-form
+   marker: landscape touch layouts are wider than the phone breakpoint. */
+body [data-dsh-android-model-menu][data-menu-material='translucent'] > [aria-hidden='true'] {
+  background: var(--dsw-alias-bg-module-platform);
+  backdrop-filter: none;
+}
+
 /* Horizontal containment: the guard marks the painted card of every open
    popup and writes its shift, keeping the card inside the viewport. */
 [data-dsh-popup] {

@@ -51,6 +51,7 @@ export type BackLayerKind =
   | 'menu'
   | 'menu-drill'
   | 'attachment-menu'
+  | 'model-menu'
   | 'main-panel'
 
 /** One observed layer plus the closure that pops it. */
@@ -92,6 +93,8 @@ const TRAJECTORY_LABELS = ['Event details', '事件详情']
 const RIGHT_FULLSCREEN_SELECTOR =
   '[data-sidebar-right-panel="fullscreen"][data-sidebar-right-open]:not([aria-hidden="true"])'
 const MENU_SELECTOR = '[data-trigger-menu]'
+// ComposerPopupGuard marks only the open, aria-controlled Android ModelSelect portal.
+const MODEL_MENU_SELECTOR = '[data-dsh-android-model-menu]'
 /**
  * This plugin's own attachment-source popup (attachment-picker-menu.ts).
  *
@@ -127,6 +130,7 @@ const OBSERVED_ATTRIBUTES = [
   'data-sidebar-right-open',
   'data-trigger-menu',
   'data-dsh-attachment-picker-menu',
+  'data-dsh-android-model-menu',
   'data-plugin-panel',
   'data-dsh-main-panel-back',
 ]
@@ -432,6 +436,8 @@ export class BackStackSignal {
     if (menu !== null) found.push(menu)
     const drill = this.detectMenuDrill()
     if (drill !== null) found.push(drill)
+    const modelMenu = this.detectModelMenu()
+    if (modelMenu !== null) found.push(modelMenu)
     const attachmentMenu = this.detectAttachmentMenu()
     if (attachmentMenu !== null) found.push(attachmentMenu)
     return found
@@ -509,6 +515,22 @@ export class BackStackSignal {
     const menu = document.querySelector<HTMLElement>(MENU_SELECTOR)
     if (menu === null) return null
     return { id: 'menu', kind: 'menu', close: () => closeMenu(menu) }
+  }
+
+  /** ModelSelect owns Escape: leave its drilled pane first, then close and restore trigger focus. */
+  private detectModelMenu(): BackLayerDetection | null {
+    const menu = document.querySelector<HTMLElement>(MODEL_MENU_SELECTOR)
+    if (menu === null) return null
+    return {
+      id: 'model-menu',
+      kind: 'model-menu',
+      close: () => {
+        menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+        // ModelSelect prevents default when it handles Escape. dispatchEvent's false return
+        // therefore means handled, not a reason for the Android shell to finish the Activity.
+        return true
+      },
+    }
   }
 
   /**

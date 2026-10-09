@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ComposerPopupGuard, composerPopupMaxHeight, popupMaxWidth, popupShiftLeft,
 } from '../src/client/composer-popup-guard.ts'
@@ -80,11 +80,19 @@ function flush(): Promise<void> {
 
 describe('ComposerPopupGuard', () => {
   let guard: ComposerPopupGuard | null = null
+  let previousAndroidBridge: PropertyDescriptor | undefined
+
+  beforeEach(() => {
+    previousAndroidBridge = Object.getOwnPropertyDescriptor(window, 'androidBridge')
+    delete window.androidBridge
+  })
 
   afterEach(() => {
     guard?.detach()
     guard = null
     document.body.innerHTML = ''
+    if (previousAndroidBridge === undefined) delete window.androidBridge
+    else Object.defineProperty(window, 'androidBridge', previousAndroidBridge)
   })
 
   it('caps the surface and its scroll container, and shifts the surface inside', async () => {
@@ -121,6 +129,67 @@ describe('ComposerPopupGuard', () => {
     expect(card.style.getPropertyValue('--dsh-mobile-popup-shift')).toBe('')
     expect(card.hasAttribute('data-dsh-popup')).toBe(false)
     expect(listbox.style.getPropertyValue('--dsh-mobile-menu-max-height')).toBe('')
+  })
+
+  it('resolves the aria-controls model menu portal and cleans it up when it closes', async () => {
+    document.body.innerHTML = '<div data-composer-card><button aria-haspopup="menu" aria-expanded="true" aria-controls="model-menu"></button></div>'
+    const menu = document.createElement('div')
+    menu.id = 'model-menu'
+    menu.setAttribute('role', 'menu')
+    menu.setAttribute('data-menu-material', 'translucent')
+    menu.getBoundingClientRect = () => ({
+      left: 20, right: 280, top: 250, bottom: 600, width: 260, height: 350,
+      x: 20, y: 250, toJSON: () => ({}),
+    })
+    document.body.append(menu)
+
+    guard = new ComposerPopupGuard()
+    guard.attach()
+    await flush()
+
+    expect(menu.hasAttribute('data-dsh-mobile-model-menu')).toBe(true)
+    expect(menu.hasAttribute('data-dsh-android-model-menu')).toBe(false)
+    expect(menu.hasAttribute('data-dsh-popup')).toBe(true)
+    expect(menu.style.getPropertyValue('--dsh-mobile-menu-max-height')).toBe('360px')
+    expect(menu.style.getPropertyValue('--dsh-mobile-popup-max-width'))
+      .toBe(`${popupMaxWidth(document.documentElement.clientWidth)}px`)
+
+    // ModelSelect keeps role=menu on the portal while changing the pane content.
+    // Removing that portal must still schedule guard cleanup.
+    menu.remove()
+    await flush()
+    expect(menu.hasAttribute('data-dsh-mobile-model-menu')).toBe(false)
+    expect(menu.hasAttribute('data-dsh-android-model-menu')).toBe(false)
+    expect(menu.hasAttribute('data-dsh-popup')).toBe(false)
+    expect(menu.style.getPropertyValue('--dsh-mobile-popup-max-width')).toBe('')
+    expect(menu.style.getPropertyValue('--dsh-mobile-popup-shift')).toBe('')
+    expect(menu.style.getPropertyValue('--dsh-mobile-menu-max-height')).toBe('')
+  })
+
+  it('tags the model menu for opaque Android painting independent of viewport form', async () => {
+    window.androidBridge = {} as never
+    document.body.innerHTML = '<div data-composer-card><button aria-haspopup="menu" aria-expanded="true" aria-controls="model-menu"></button></div>'
+    const menu = document.createElement('div')
+    menu.id = 'model-menu'
+    menu.setAttribute('role', 'menu')
+    menu.setAttribute('data-menu-material', 'translucent')
+    menu.getBoundingClientRect = () => ({
+      left: 20, right: 280, top: 250, bottom: 600, width: 260, height: 350,
+      x: 20, y: 250, toJSON: () => ({}),
+    })
+    document.body.append(menu)
+
+    guard = new ComposerPopupGuard()
+    guard.attach()
+    await flush()
+
+    expect(document.documentElement.hasAttribute('data-dsh-mobile-form')).toBe(false)
+    expect(menu.hasAttribute('data-dsh-mobile-model-menu')).toBe(true)
+    expect(menu.hasAttribute('data-dsh-android-model-menu')).toBe(true)
+
+    menu.remove()
+    await flush()
+    expect(menu.hasAttribute('data-dsh-android-model-menu')).toBe(false)
   })
 
   it('does nothing without a composer card', async () => {
