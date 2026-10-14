@@ -49,6 +49,13 @@ html[data-dsh-mobile-form] body [data-dsh-mobile-model-menu] {
   max-height: var(--dsh-mobile-menu-max-height, none) !important;
 }
 
+/* 二级模型列表到达边界后仍由菜单消化纵向滚动，避免滚动链传给背景会话。
+   overscroll 必须落在实际内部 scrollable 节点；仅设置外层绘制卡片无效。 */
+[data-dsh-mobile-model-menu],
+[data-dsh-mobile-model-menu] .scrollable {
+  overscroll-behavior-y: none;
+}
+
 /* Android WebView cannot reliably reproduce the desktop translucent menu
    backdrop. The popup guard tags only an aria-controls-resolved model menu when
    the Android bridge is present. Keep this independent of the narrow-form
@@ -58,9 +65,12 @@ body [data-dsh-android-model-menu][data-menu-material='translucent'] > [aria-hid
   backdrop-filter: none;
 }
 
-/* Horizontal containment: the guard marks the painted card of every open
-   popup and writes its shift, keeping the card inside the viewport. */
+/* Containment: the guard marks the painted card of every open popup and writes
+   its shifts, keeping the card inside the viewport. The Y half of the pair is
+   what moves a portaled model menu out from under the soft keyboard: ModelSelect
+   anchors from the trigger but clamps against window.innerHeight, which Android
+   keeps at full height while the IME is up. */
 [data-dsh-popup] {
-  transform: translateX(var(--dsh-mobile-popup-shift, 0px));
+  transform: translate(var(--dsh-mobile-popup-shift, 0px), var(--dsh-mobile-popup-shift-y, 0px));
 }
 `

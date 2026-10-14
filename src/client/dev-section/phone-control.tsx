@@ -79,7 +79,7 @@ interface RootGrantStatus {
   /** 状态是否真的读到了（false = 桥缺席/解析失败，界面不得冒充「未授权」以外的任何状态）。 */
   readable: boolean
   granted: boolean
-  /** 「已阅读」同意是否对**当前版本**有效（与 versionCode 绑定，升级后需重新确认）。 */
+  /** 「已阅读」同意是否对**当前免责声明版本**有效（绑内容版本，不随 APK 升级失效）。 */
   consentValid: boolean
   /** 通道身份 uid（读不到 = -1）。 */
   channelUid: number
@@ -754,7 +754,7 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
         ? () => window.androidBridge!.setRootConsent!(next)
         : undefined,
       next
-        ? '已记录「已阅读」——与当前版本绑定，升级后需重新确认。'
+        ? '已记录「已阅读」——与免责声明版本绑定，应用升级不需重新确认；免责声明内容更新后才需再确认。'
         : '已撤销同意，并同时关闭了 AI root 权限。',
       next ? '记录「已阅读」失败' : '撤销同意失败',
     )
@@ -814,7 +814,7 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
       <header className="dsh-screen-control-header">
         <span>
           <strong id="dsh-phone-control-title">手机控制</strong>
-          <small>屏幕与特权通道的授权面；模型不能自行更改这里的任何设置。</small>
+          <small>屏幕与特权通道的授权设置；模型改不了这里的设置。</small>
         </span>
         <span className="dsh-screen-control-state" data-state={vdisplay.state}>{STATUS_LABEL[vdisplay.state]}</span>
       </header>
@@ -846,10 +846,9 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
           打开 Shizuku
         </button>
       </div>
-      <p className="dsh-dev-hint">
-        两个入口都会跳到应用外（系统浏览器 / Shizuku 应用）。装好并授权后回到本页即可——
-        状态每 2 秒自动刷新，不需要手动操作。授权只能在 Shizuku 内由你亲手完成。
-      </p>
+      {/* 精简（0.14.7-B D5）：保留「两个入口都会跳出去」「授权只能由你亲手完成」；状态自动刷新
+          这句已由上方状态行与本页 2 秒轮询承担，不再复述。 */}
+      <p className="dsh-dev-hint">两个入口都会跳到应用外（系统浏览器 / Shizuku 应用）；装好并授权后回本页即可，授权只能在 Shizuku 内由你亲手完成。</p>
       <div className="dsh-dev-row">
         <button type="button" className="dsh-dev-link" onClick={tutorialShizuku}>点击查看教程</button>
         <button type="button" className="dsh-dev-btn" onClick={refreshShizuku}>刷新状态</button>
@@ -865,9 +864,8 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
           >
             请求 Shizuku 授权
           </button>
-          <span className="dsh-dev-hint">
-            授权框需要前台界面才能弹出——后台自动请求会静默失败（管理器里会看不到本应用）。
-          </span>
+          {/* 失败机理保留（用户据此判断「为什么点了没反应」），只压掉重复的前提句。 */}
+          <span className="dsh-dev-hint">授权框需要前台界面才会弹出，后台自动请求会静默失败。</span>
         </div>
       )}
       {shizukuMsg === null ? null : (
@@ -896,7 +894,7 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
             {rootAccess.requesting ? '正在检测…' : '检测 root 授权'}
           </button>
           {rootAccess.managerInstalled ? (
-            <p className="dsh-dev-hint">Root 管理器：{rootAccess.managerLabel}。请在管理器中允许本应用，再回到这里检测。</p>
+            <p className="dsh-dev-hint">Root 管理器：{rootAccess.managerLabel}——在管理器中允许本应用，再回这里检测。</p>
           ) : null}
         </div>
 
@@ -917,7 +915,7 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
           )}
           <button type="button" className="dsh-dev-link" onClick={openRootDisclaimer}>阅读《AI root 权限免责声明》</button>
           <label className="dsh-screen-scope-row dsh-root-toggle-row">
-            <span><strong>已阅读免责声明</strong><small>理解 root 操作可能修改或删除系统与个人数据，并愿意承担相应风险。升级后需重新确认；撤销同意会同时关闭 AI 开关。</small></span>
+            <span><strong>已阅读免责声明</strong><small>理解 root 操作可能修改或删除系统与个人数据，并承担相应风险。应用升级不需重新确认（免责声明内容更新时才需）；撤销同意会同时关闭 AI 开关。</small></span>
             <input type="checkbox" aria-label="已阅读免责声明" checked={rootGrant.consentValid}
               disabled={!rootGrant.readable} onChange={(event) => toggleRootConsent(event.target.checked)} />
           </label>
@@ -950,7 +948,7 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
       <label className="dsh-screen-scope-row">
         <span>
           <strong>开放屏幕范围</strong>
-          <small>默认仅虚拟屏幕。真实屏幕、截图与控制都遵守此范围和完全访问权限。</small>
+          <small>默认仅虚拟屏幕；真实屏幕、截图与控制都受此范围约束。</small>
         </span>
         <select aria-label="开放屏幕范围" value={scope} onChange={(event) => setScope(event.target.value as ScreenScope)}>
           <option value="virtual-only">仅虚拟屏幕</option>
@@ -962,7 +960,7 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
       <label className="dsh-screen-scope-row">
         <span>
           <strong>虚拟屏分辨率档位</strong>
-          <small>跟随真机比例并同比例缩放 densityDpi（下次建屏生效；默认 0.75，更省性能）。</small>
+          <small>跟随真机比例缩放（下次建屏生效；默认 0.75）。</small>
         </span>
         <select aria-label="虚拟屏分辨率档位" value={String(scale)} onChange={(event) => setScale(Number(event.target.value))}>
           {SCALE_OPTIONS.map((option) => (
@@ -978,7 +976,7 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
           <strong>虚拟屏浮窗（退后台自动显示）</strong>
           {/* P5-6：与开发者选项里的「悬浮球」去混淆。两者都叫「浮」，但一个是**虚拟屏只读画面**，
               一个是**任务面板入口**——旧文案各说各的，用户在两页之间对不上号。 */}
-          <small>只读浮窗：应用切到后台时显示虚拟屏画面；前台只在侧栏可见。与开发者选项里的「悬浮球」不是同一个东西（那个是任务面板入口）。</small>
+          <small>只读浮窗：退后台时显示虚拟屏画面，前台只在侧栏可见。不是开发者选项里的「悬浮球」（那个是任务面板入口）。</small>
         </span>
         <input
           aria-label="虚拟屏浮窗（退后台自动显示）"
@@ -997,9 +995,10 @@ export function PhoneControlSection(_props: PropsRuntime<'settings.section'>) {
         </span>
         {a11y.hint !== '' ? <span>{a11y.hint}</span> : null}
       </div>
+      {/* 权限引导必须保留：说明为什么系统页开关是灰的、以及解锁只影响本应用这一项。 */}
       {a11y.readable && !a11y.enabled && a11y.restrictedSettingsApplies ? (
         <p className="dsh-dev-hint">
-          Android 13 及以上对侧载应用默认开启「受限设置」：系统页里本应用的开关会是灰的。
+          Android 13 及以上对侧载应用默认开启「受限设置」，系统页里本应用的开关是灰的：
           先点「解锁受限设置」（经 Shizuku 特权通道，只影响本应用这一项），再回去开启。
         </p>
       ) : null}

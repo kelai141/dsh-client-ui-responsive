@@ -201,13 +201,13 @@ export function NotifySettingsRow() {
         />
         <span>应用在前台时不弹工作汇报（改为延后，回后台补投）</span>
       </label>
+      {/* 精简（0.14.7-B D5）：两段合成一段——开关行已经说明「开启 = 前台不弹」，这里只补
+          「延后到哪、什么时候补投、哪些分类永不受影响」。 */}
       <p className="dsh-dev-hint">
         当前：{suppress ? '前台抑制开启（工作汇报延后）' : '前台照常推送'}
         {isDefault ? '；等于本版默认值' : '；已偏离本版默认值'}
-      </p>
-      <p className="dsh-dev-hint">
-        关闭抑制（默认）即「前台也发系统通知」；开启后命中的工作汇报进入待投队列，
-        回到后台或再次关闭抑制时补投（队列有 TTL 与容量上限）。提问与授权请求永不受此项影响。
+        。开启后命中的工作汇报进入待投队列，回后台或再次关闭抑制时补投（队列有 TTL 与容量上限）；
+        提问与授权请求永不受此项影响。
       </p>
 
       <div className="dsh-dev-notify-cats">
@@ -352,7 +352,7 @@ export function NotifySettingsSection(_props: PropsRuntime<'settings.section'>) 
       <header className="dsh-screen-control-header">
         <span>
           <strong id="dsh-notify-title">通知</strong>
-          <small>任务汇报、向你提问与授权请求的提醒方式；模型不能自行更改这里的任何设置。</small>
+          <small>任务汇报、提问与授权请求的提醒方式；模型改不了这里的设置。</small>
         </span>
       </header>
       <NotifySettingsRow />

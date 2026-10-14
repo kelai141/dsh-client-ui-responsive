@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { GeneralSettings } from '../src/client/general-settings/GeneralSettings.tsx'
+import { LEFT_SWIPE_KEY, RIGHT_SWIPE_KEY } from '../src/client/mobile/sidebar-gestures.ts'
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -118,5 +119,31 @@ describe('GeneralSettings 沉浸式开关的失败回执（S3-17）', () => {
     expect(value).toBe(true)
     expect(host!.textContent).not.toContain('设置没有生效')
     expect(host!.textContent).not.toContain('没有开启')
+  })
+})
+
+describe('GeneralSettings 左右侧栏滑动开关（#335）', () => {
+  it('默认各自开启，且分别持久化，不互相改写', async () => {
+    const immersive = await render()
+    const left = host!.querySelector<HTMLInputElement>('[data-dsh-sidebar-swipe="left"] input')!
+    const right = host!.querySelector<HTMLInputElement>('[data-dsh-sidebar-swipe="right"] input')!
+    expect(immersive.checked).toBe(true)
+    expect(left.checked).toBe(true)
+    expect(right.checked).toBe(true)
+    await act(async () => { left.click() })
+    expect(localStorage.getItem(LEFT_SWIPE_KEY)).toBe('0')
+    expect(localStorage.getItem(RIGHT_SWIPE_KEY)).toBeNull()
+    expect(right.checked).toBe(true)
+    await act(async () => { right.click() })
+    expect(localStorage.getItem(RIGHT_SWIPE_KEY)).toBe('0')
+    expect(left.checked).toBe(false)
+  })
+
+  it('从各自存储恢复，而不依赖 immersive bridge', async () => {
+    localStorage.setItem(LEFT_SWIPE_KEY, '0')
+    localStorage.setItem(RIGHT_SWIPE_KEY, '1')
+    await render()
+    expect(host!.querySelector<HTMLInputElement>('[data-dsh-sidebar-swipe="left"] input')!.checked).toBe(false)
+    expect(host!.querySelector<HTMLInputElement>('[data-dsh-sidebar-swipe="right"] input')!.checked).toBe(true)
   })
 })

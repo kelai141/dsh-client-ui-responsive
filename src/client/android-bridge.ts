@@ -84,8 +84,14 @@ export interface AndroidShellBridge {
    */
   resetShizukuConnection?: () => string
   /**
-   * issue #262「AI root 权限」读面：`{ok, granted, consentValid, consentVersionCode,
-   * currentVersionCode, channelUid, channelRoot, canToggle, honesty, ownership}`。
+   * issue #262「AI root 权限」读面：`{ok, granted, consentValid, consentRevision,
+   * currentRevision, consentVersionCode, currentVersionCode, channelUid, channelRoot,
+   * canToggle, honesty, ownership}`。
+   *
+   * 0.14.7 起 `consentVersionCode` / `currentVersionCode` 的**单位是免责声明内容版本**
+   * （壳侧 `RootGrant.DISCLAIMER_REVISION`），不再是 APK versionCode——同意不随应用升级
+   * 失效（用户实测「root 免责声明每次更新怎么都会掉」）。字段名保留只为桥面对称，新代码请读
+   * `consentRevision` / `currentRevision`；`consentValid` 始终是唯一权威判据。
    *
    * `channelRoot` 是**通道身份**判据（Shizuku 服务端 uid==0），不是「设备是否 root」——
    * 已 root 但 Shizuku 以 ADB（uid 2000）启动时此值为 false；显式授权的 su 是独立替代通道。
@@ -95,10 +101,12 @@ export interface AndroidShellBridge {
    *  拒绝时带 `code`（`not-root-channel` / `consent-required`）与 `guidance`。 */
   setRootGranted?: (on: boolean) => string
   /** issue #262「已阅读」确认写面：取消勾选即撤销同意并**同时关闭开关**；
-   *  同意与 versionCode 绑定，升级后自动失效需重新确认。 */
+   *  同意绑定免责声明内容版本，APK 升级不失效，仅在免责声明内容更新后需重新确认。 */
   setRootConsent?: (on: boolean) => string
   /** issue #262 免责门：打开 APK 内免责声明（`LocalDocs` 通道，页面不传路径）。
-   *  返回 JSON `{ok, reason?}`（reason ∈ unknown-key / missing-asset / no-handler / 异常类名）。 */
+   *  返回 JSON `{ok, reason?}`（reason ∈ unknown-key / missing-asset / no-handler / 异常类名）。
+   *  声明内容修订时，对应的 `RootGrant.DISCLAIMER_REVISION` 必须同步 +1（那才是要求
+   *  用户重新确认的唯一触发器），并同步 `user-copy.ts` / 本页提示文案。 */
   openRootDisclaimer?: () => string
   /** 2026-09-30 主人定例：应用级 root 授权状态（**纯读，永不触发弹窗**）。
    *  `{ok, suExists, suPath, state: 'unknown'|'requesting'|'granted'|'denied'|'timeout'|'no-su',
@@ -171,6 +179,23 @@ export interface AndroidShellBridge {
   openNotifyChannelSettings?: (channelId: string) => boolean
   /** 发送五类测试通知，返回实际投递条数（0..5）；0 = 没发出去（权限/渠道不可用）。 */
   notifySendTest?: () => number
+  /**
+   * 0.14.6「检查更新 = 下载 APK 然后更新」（用户指令）的设置页入口。
+   *
+   * **单方法 + action 参数**，与壳侧 `AndroidBridge.apkUpdate(action)` **逐名对称**
+   * （`scripts/check-bridge-symmetry.mjs` 会拦不对称面；壳侧动作名是闭集，未知动作只读回状态）。动作：
+   *  - `"status"`：**只读**当前状态，不发起任何网络/安装动作；
+   *  - `"check"`：发起检查；
+   *  - `"install"`：对上次检查到的新版执行「下载 -> 校验 -> 拉起系统安装器」。
+   *
+   * 返回 JSON 字符串：{ok, state, version?, tag?, name?, current?, sizeBytes?, percent?, reused?, reason?, kind?, canStart, code?}
+   * —— ok 只表示**这次调用是否被受理**，**不表示更新成功**；reason 是壳侧给的用户可读中文，页面**原样展示**。
+   *
+   * 为什么是同步返回 JSON 而不是 Promise：`@JavascriptInterface` 不能回 Promise。
+   * 故页面用「发起 + 轮询读 status」两段式收敛（同 notify 面范式），**不依赖任何回调**——
+   * `window.__dshBridge` 有幂等守卫且被整体赋值，挂回调有被整体跳过/被覆盖的风险（见 host-web-compat 的 PICKER_SCRIPT）。
+   */
+  apkUpdate?: (action: string) => string
 }
 
 declare global {

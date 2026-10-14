@@ -199,11 +199,11 @@ export function RuntimeCacheRow() {
           ))}
         </ul>
       )}
+      {/* 精简（0.14.7-B D5）：白名单制与「哪些不碰」是数据安全说明，必须保留；此处只去掉
+          「本版未纳入任何子目录」这类与上方跳过清单逐条重复的实现口径。 */}
       <p className="dsh-dev-hint">
-        白名单制：只清理本版已知安全的引擎运行时残留（引擎日志历史代 + 应用私有数据下有名有据的缓存目录）。
-        当前引擎日志（壳侧鉴权链依赖它）、会话与附件、凭据、用户设置、已装插件一律不触碰；
-        DSH_HOME/cache 按子目录分别裁定，本版未纳入任何子目录，因此整目录逐项跳过并如实列出。
-        未识别的路径会被显式跳过。本版不清理 pnpm store，也不触碰快照在途标志。
+        白名单制：只清理本版已知安全的引擎运行时残留（引擎日志历史代 + 有据可查的缓存目录）。
+        当前引擎日志、会话与附件、凭据、用户设置、已装插件一律不触碰；白名单外的路径逐项跳过并如实列出。
       </p>
 
       {skipped.length > 0 && (
@@ -254,9 +254,10 @@ export function RuntimeCacheRow() {
         >
           <div className="dsh-dev-modal" role="document" onClick={(event) => { event.stopPropagation() }}>
             <p className="dsh-dev-modal-title">确认清除运行时缓存？</p>
+            {/* 不可逆操作的后果说明必须保留：删哪几项、哪些不受影响、失败项如何处理。 */}
             <p className="dsh-dev-modal-desc">
-              将删除以下 {targets.length} 项，合计 {fmtBytes(reclaimable)}。会话、附件、凭据、
-              设置、已装插件与当前引擎日志不受影响；删除逐项进行，失败项会如实列出。
+              删除以下 {targets.length} 项，共 {fmtBytes(reclaimable)}，无法恢复。会话、附件、凭据、
+              设置、已装插件与当前引擎日志不受影响；失败项会如实列出。
             </p>
             <ul className="dsh-dev-cache-list">
               {targets.map((item) => (

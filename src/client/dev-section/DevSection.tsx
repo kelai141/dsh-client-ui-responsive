@@ -13,6 +13,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { useShellState } from '../mobile/use-shell-state.ts'
 import { describeHttpFailure, noticeDataAttrs, type Notice } from '../user-copy.ts'
 import { RuntimeCacheRow } from './runtime-cache.tsx'
+import { ModelCapabilityRow } from './model-capability.tsx'
+import { ApkUpdateRow } from './apk-update.tsx'
 import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls in the settings.section owner share (erased at build time, types only).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -284,9 +286,9 @@ export function DevSection({ renderSlot }: DevSectionProps) {
 
   return (
     <div data-plugin="dev-section" onKeyDown={onKeyDown}>
-      <p className="dsh-dev-note">
-        DeepCode 开发者选项：控制台为运行时内嵌命令行；日志默认关闭。
-      </p>
+      {/* 分区名已由设置中心的二级页标题条承担（竖屏 settings-nav；横屏上游 nav 行），
+          这里不再重复一遍「开发者选项」，只留这一页真正独有的一句说明。 */}
+      <p className="dsh-dev-note">控制台是运行时内嵌命令行；日志默认关闭。</p>
 
       {/* 0.14.0：屏幕/Shizuku/虚拟屏/浮窗/无障碍/强制销毁已迁到独立「手机控制」设置页。 */}
 
@@ -325,10 +327,8 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         />
         <span>悬浮球（任意界面可见的任务面板入口）</span>
       </label>
-      <p className="dsh-dev-hint">
-        屏幕上的圆球：点开可看实时工具调用、可一键停止。与「手机控制」页的「虚拟屏浮窗」
-        （退后台显示虚拟屏画面）是两个不同的东西。
-      </p>
+      {/* P5-6 只要求「点名的两处不是同一个东西」，不再复述另一页的完整语义（那由该页自己说）。 */}
+      <p className="dsh-dev-hint">点开可看实时工具调用、可一键停止；与「手机控制」页的「虚拟屏浮窗」不是同一个东西。</p>
       {overlayMsg !== null && <p className="dsh-dev-hint">{overlayMsg}</p>}
 
       {/* 0.13.1 W4：配置导入/导出（安全手改通道；引擎读私有目录，改共享目录副本无效） */}
@@ -337,13 +337,24 @@ export function DevSection({ renderSlot }: DevSectionProps) {
         <button type="button" className="dsh-dev-btn" onClick={importConfig}>导入配置</button>
       </div>
       {configMsg !== null && <p className="dsh-dev-hint">{configMsg}</p>}
+      {/* 数据安全说明必须保留（配置不含密钥）；路径保留（用户要拿它去改）。 */}
       <p className="dsh-dev-hint">
-        导出位置 Documents/dshdata/exports/config/settings.yaml；用文件管理器修改后点「导入配置」即可生效。
-        配置不含 API 密钥（密钥在应用私有目录，不随导出泄漏）。
+        导出到 Documents/dshdata/exports/config/settings.yaml，改完点「导入配置」生效。导出不含 API 密钥。
       </p>
 
       {/* 0.14.1 块 E（详档 §4.3）：运行时缓存清理——白名单制、先给可回收体积再执行、逐项落审计。 */}
       <RuntimeCacheRow />
+
+      {/* 0.14.6 功能 A6：非内置提供商模型能力的手动补齐入口。
+          A7 之后补给只在保存时发生，故用户「早就在用的模型」需要一个显式触发点；
+          这里复用既有开发者选项区，不新开设置分区、不新增独立大按钮。 */}
+      <ModelCapabilityRow />
+
+      {/* 0.14.6（用户指令「更新不应该是只更新快照，应该是下载 apk 然后更新」）：应用自更新入口。
+          此前该状态机与入口只存在于引导页渲染器里，而健康态 showWeb() 把引导页藏起来
+          => 健康状态下没有任何更新入口（能力在、入口无）。壳侧已把状态机提为单一真源，
+          本行与引导页按钮读同一份状态，故两入口不会打架。 */}
+      <ApkUpdateRow />
 
       {/* 0.14.1 批 3（P3-5）：通知设置已从开发者选项**提级**为设置页一级分区「通知」。
           这里只留指路（同功能双实现是审查档 §5 的结构性根因，故不重复渲染同一组开关）。 */}
