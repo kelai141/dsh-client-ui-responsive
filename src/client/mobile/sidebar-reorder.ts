@@ -12,11 +12,11 @@ import { flushSync } from 'react-dom'
  * 不写持久化、不判跨项目 —— 否则就是第二套排序真源，必然与上游语义漂移。
  *
  * ## 为什么必须翻译
- * HTML5 DnD 在触摸屏上没有原生触发路径：Chromium 不会把长按拖动变成 drag 事件，所以上游
- * 那套 handler 在手机上永远收不到。这里按 `dragstart → dragover → drop → dragend` 的顺序
- * 合成事件，派发到上游真正挂 handler 的行元素上。React 在根容器委托监听并按键解析目标，
- * 因此合成事件会被上游 handler 正常收到。`dataTransfer` 在浏览器里是只读对象，用最小
- * polyfill（effectAllowed / dropEffect / setData / getData）顶上 —— 上游只用到这几项。
+ * The adapter owns a predictable touch lifecycle and delegates ordering to the
+ * upstream React row handlers. Android WebView may also initiate native HTML
+ * dragging after a long press; that competing default must be cancelled before
+ * it terminates the touch stream. Use a native DataTransfer when available and
+ * include transfer types in the fallback for global file-drop listeners.
  *
  * ## 与 R1 的互斥
  * 拖动重排期间在 `<html>` 上打 REORDER_ATTR；sidebar-gestures.ts（R1 实时跟手）在 touchstart
@@ -47,7 +47,7 @@ const MOVE_SLOP_PX = 10
 /** 上游 onDragStart 写入的格式（Rows.tsx:606 的 `text/plain`）。 */
 const DRAG_FORMAT = 'text/plain'
 
-/** 上游只读取这四项，因此 polyfill 只需覆盖它们。 */
+/** Transfer metadata is shared by row handlers and document-level file-drop listeners. */
 interface DragTransfer {
   /** Global file-drop listeners also inspect this event before React handles it. */
   readonly types: readonly string[]
