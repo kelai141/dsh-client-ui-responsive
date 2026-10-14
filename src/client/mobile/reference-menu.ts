@@ -28,6 +28,10 @@
  */
 const ROW_SELECTOR = '[data-trigger-menu] [role="option"]'
 const MENU_SELECTOR = '[data-trigger-menu]'
+/** 行元素 id 的固定前缀（上游 MenuView 的 optionId(source, index)）。 */
+const OPTION_ID_PREFIX = 'dsh-slash-option-'
+/** 引用源（ui-reference）的注册名；只有它的菜单才配多选 chrome。 */
+const REFERENCE_SOURCE = 'reference'
 const CHECK_ATTR = 'data-dsh-ref-check'
 /** 选中标记（**视觉状态的唯一来源**：属性是状态，样式是后果，由 CSS 消费）。 */
 const ON_ATTR = 'data-dsh-ref-on'
@@ -134,6 +138,40 @@ function isMobileForm(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia(MOBILE_QUERY).matches
 }
 
+/**
+ * 一行属于哪个触发源。行 id 由上游 MenuView 的 optionId(source, index) 生成，源名是它
+ * 唯一稳定在场的语义字段（data-ref-key 是本插件自己写的，不能反过来当判据）。
+ * @param row - the candidate row.
+ * @returns 该行的源名；id 缺失或前缀不符时 null。
+ */
+function sourceOfRow(row: HTMLElement): string | null {
+  const id = row.id
+  if (!id.startsWith(OPTION_ID_PREFIX)) return null
+  // 末尾是 index、源名自身不含 '-'（上游注册名是 'command' / 'reference'），
+  // 所以从右往左切一次：id = prefix + source + '-' + index。
+  const rest = id.slice(OPTION_ID_PREFIX.length)
+  const at = rest.lastIndexOf('-')
+  return at <= 0 ? null : rest.slice(0, at)
+}
+
+/**
+ * 菜单里是否含「引用源」的行。
+ *
+ * 上游把 /（指令）与 @（文件引用）渲染进**同一个** [data-trigger-menu] 容器
+ * （MenuView.tsx 一个 MenuSurface 承载全部 group），所以容器属性无法区分二者；
+ * 真机实测容器上没有 data-source，分组标题的 data-source 也只在 groupTitle 那一支出现，
+ * 而 / 菜单因为每行都带 section 而从不渲染 groupTitle —— 靠这些属性判别会静默漏判。
+ * 行 id 里的源名则是两种菜单里都在场、且语义正确的字段。
+ * @param menu - the open trigger menu.
+ * @returns 含引用源行为 true。
+ */
+function hasReferenceRows(menu: Element): boolean {
+  for (const row of menu.querySelectorAll<HTMLElement>('[role="option"]')) {
+    if (sourceOfRow(row) === REFERENCE_SOURCE) return true
+  }
+  return false
+}
+
 /** Multi-select state plus the mobile-only row behavior for the reference menu. */
 export class ReferenceMenuEnhancer {
   /** 多选集合：**稳定键**（标签 + 同标签内序号），不是裸显示文本（#169-5）。 */
@@ -197,10 +235,17 @@ export class ReferenceMenuEnhancer {
     })
   }
 
-  /** 清空多选状态与底部条（菜单关闭 / 卸载时；#169-6 的幻影残留防线）。 */
+  /**
+   * 清空多选状态、行上的勾选标记、注入的复选框与底部条
+   * （菜单关闭 / 卸载 / 切到非引用菜单时；#169-6 的幻影残留防线）。
+   * 复选框必须一并撤掉：上游复用同一个 MenuSurface 节点承载 / 与 @ 两种菜单，
+   * 只清属性会把它留在普通「+」菜单里。
+   */
   private clearState(): void {
     this.checked.clear()
     document.querySelectorAll('[' + ON_ATTR + ']').forEach((el) => { el.removeAttribute(ON_ATTR) })
+    document.querySelectorAll('[' + CHECK_ATTR + ']').forEach((el) => { el.remove() })
+    document.querySelectorAll('[' + KEY_ATTR + ']').forEach((el) => { el.removeAttribute(KEY_ATTR) })
     document.querySelector<HTMLElement>('[' + BAR_ATTR + ']')?.remove()
   }
 
@@ -214,12 +259,26 @@ export class ReferenceMenuEnhancer {
       if (this.checked.size > 0) this.clearState()
       return
     }
-    if (document.querySelector(MENU_SELECTOR) === null) {
+    const menu = document.querySelector(MENU_SELECTOR)
+    // 触发源门（2026-10-11）：「/」指令菜单与「@」引用菜单共用同一个 [data-trigger-menu]
+    // 容器，"菜单在场" 不等于 "这是引用菜单"。旧实现只问前者，于是普通「+」菜单的每一行
+    // 都被插上复选框（真机实测 9/9 行：文件/目标/计划/反馈/压缩/权限/模型/下载日志/插件项），
+    // 图标、分组标题与菜单项挤在一起。多选只属于引用源，其余菜单上主动撤掉已注入的 chrome。
+    if (menu === null) {
+      if (this.checked.size > 0 || document.querySelector('[' + BAR_ATTR + ']') !== null) this.clearState()
+      return
+    }
+    const rows = menu.querySelectorAll<HTMLElement>('[role="option"]')
+    // 候选还在路上（上游先渲染 pending 骨架行，没有 option 行）：既不注入也不清态 ——
+    // 清态会把用户刚勾的项连同底部条一起抹掉，"换个查询词就丢选择" 是比旧缺陷更难发现的坏行为。
+    if (rows.length === 0) return
+    if (!hasReferenceRows(menu)) {
       if (this.checked.size > 0 || document.querySelector('[' + BAR_ATTR + ']') !== null) this.clearState()
       return
     }
     const seen = new Map<string, number>()
-    for (const row of document.querySelectorAll<HTMLElement>(ROW_SELECTOR)) {
+    for (const row of rows) {
+      if (sourceOfRow(row) !== REFERENCE_SOURCE) continue
       const label = rowLabel(row)
       const occurrence = (seen.get(label) ?? 0) + 1
       seen.set(label, occurrence)
@@ -247,6 +306,7 @@ export class ReferenceMenuEnhancer {
 
   /** Toggle one row：状态落在行元素上，随后由 CSS 呈现（无二次同步步骤）。 */
   private toggle(row: HTMLElement): void {
+    if (sourceOfRow(row) !== REFERENCE_SOURCE) return
     const key = row.getAttribute(KEY_ATTR)
     if (key === null) return
     const on = !row.hasAttribute(ON_ATTR)
@@ -351,6 +411,7 @@ export class ReferenceMenuEnhancer {
     this.lastReport = '已插入 ' + String(inserted) + ' 项，' + String(this.checked.size) + ' 项未找到（可能已下钻目录）'
     // 同步视觉：已插入的取消勾选，剩下的保持勾选。
     for (const row of document.querySelectorAll<HTMLElement>(ROW_SELECTOR)) {
+      if (sourceOfRow(row) !== REFERENCE_SOURCE) continue
       const key = row.getAttribute(KEY_ATTR)
       if (key === null) continue
       const on = this.checked.has(key)

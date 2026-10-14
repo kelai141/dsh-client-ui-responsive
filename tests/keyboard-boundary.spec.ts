@@ -130,4 +130,22 @@ describe('KeyboardBoundary 生命周期', () => {
     frame.remove()
     expect(() => boundary.attach()).not.toThrow()
   })
+
+  // 回归（0.14.7 设备实测）：KeyboardBoundary.apply 曾在设备控制台抛
+  // "Cannot read properties of undefined (reading 'height')"。真因是判空只写了 `vv === null`，
+  // 漏掉 visualViewport 缺席时 `window.visualViewport` 求值为 undefined 的宿主（隔离 WebView / 旧内核）。
+  // 该异常会打断 onViewportChange，连带影响同一 effect 链上的移动适配逻辑，故必须钉住。
+  it('visualViewport 缺席（undefined）：不抛错，且不误设 frame 高度', () => {
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: undefined })
+    setImeInset(316)
+    expect(() => boundary.attach()).not.toThrow()
+    expect(frame.style.height).toBe('')
+  })
+
+  it('visualViewport 为 null：同样不抛错', () => {
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: null })
+    setImeInset(316)
+    expect(() => boundary.attach()).not.toThrow()
+    expect(frame.style.height).toBe('')
+  })
 })

@@ -17,6 +17,9 @@ export const DEV_SECTION_CSS: string = `
   font-size: 13px;
   line-height: 20px;
   color: var(--dsw-alias-label-secondary);
+  /* 设备绝对路径（设置页会显示导出/缓存目录）是不可断的长串：手机宽度下会把内容列撑到横向溢出。
+     取 anywhere 而不是 break-word——只有前者会把 min-content 一起算进去，flex 列里才真正收窄。 */
+  overflow-wrap: anywhere;
 }
 
 .dsh-dev-row {
@@ -267,6 +270,8 @@ export const DEV_SECTION_CSS: string = `
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-secondary);
+  /* 同上：导出路径、缓存目录等长串必须能断行（设备实测 412px 下无此规则会横向溢出）。 */
+  overflow-wrap: anywhere;
 }
 
 .dsh-dev-warn {
@@ -274,6 +279,8 @@ export const DEV_SECTION_CSS: string = `
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-state-error-primary);
+  /* 错误文案会带回壳侧原文（可能含路径），同样需要断行。 */
+  overflow-wrap: anywhere;
 }
 
 /* 0.14.1 块 E：运行时缓存清理块（清单行 + 跳过明细折叠）。标签一律为

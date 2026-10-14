@@ -293,3 +293,17 @@ describe('DevSection 破坏性操作与假忙碌（S3-14 / S3-15）', () => {
     expect(el.textContent).toContain('控制台不可用')
   })
 })
+
+describe('开发者选项文案在手机宽度下不横向溢出', () => {
+  it('说明/提示/警告三类文本都能对不可断的长串（设备绝对路径）断行', async () => {
+    // 真机实测：412px 下未加断行规则时，内容列被导出路径撑到 scrollWidth 681 > clientWidth 364，
+    // 用户要横向拖动才能读完（0.14.7 Spec §5「不得出现横向溢出 / 长路径撑宽」）。
+    // 这里钉住三类共用文本类的规则存在——单测没有布局引擎，故断言规则本身而不是像素。
+    const { DEV_SECTION_CSS } = await import('../src/client/dev-section/dev-section.css.ts')
+    for (const cls of ['.dsh-dev-note', '.dsh-dev-hint', '.dsh-dev-warn']) {
+      const rule = DEV_SECTION_CSS.split(cls + ' {')[1]?.split('}')[0] ?? ''
+      expect(rule, cls + ' 的规则必须在场').not.toBe('')
+      expect(rule, cls + ' 必须允许长串断行，否则设备路径会撑出横向溢出').toContain('overflow-wrap: anywhere')
+    }
+  })
+})

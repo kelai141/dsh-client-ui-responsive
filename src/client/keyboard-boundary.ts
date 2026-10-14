@@ -92,7 +92,11 @@ export class KeyboardBoundary {
   private apply(frame: HTMLElement): void {
     const rootStyle = getComputedStyle(document.documentElement)
     const ime = Number.parseFloat(rootStyle.getPropertyValue('--dsh-android-ime-bottom')) || 0
-    const vv = window.visualViewport
+    // 判空必须同时覆盖 null 与 undefined：visualViewport 在部分宿主体（隔离 WebView/旧内核）
+    // 根本不存在，只写 `vv === null` 会漏掉 undefined 并在读 vv.height 时抛 TypeError
+    // （实测设备控制台出现过 "Cannot read properties of undefined (reading 'height')"
+    // 指向本方法）。同包 composer-popup-guard / top-bar-fold 已是双判，这里与它们对齐。
+    const vv = window.visualViewport ?? null
     const vvHeight = vv === null ? 0 : Math.round(vv.height)
     // #197 机制①的第二道防线：布局视口若仍被浏览器平移（offsetTop > 0），内容在屏幕上的
     // 位置会整体上移 offsetTop，底部就留下 offsetTop 高的空白带。把这段位移补进钉住的高度里

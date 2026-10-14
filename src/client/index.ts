@@ -30,6 +30,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { ExportResultDialog } from './ExportResultDialog.tsx'
 import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
+import { MobileSettingsNav } from './mobile/settings-nav.ts'
 import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
 import { ATTACHMENT_PICKER_MENU_CSS } from './attachment-picker-menu.css.ts'
 import { AttachmentPickerMenuEnhancer } from './mobile/attachment-picker-menu.ts'
@@ -57,6 +58,13 @@ import { MOBILE_FORM_CSS } from './mobile/mobile-form.css.ts'
 import { MobileChrome, type MobileChromeInjected } from './mobile/MobileChrome.tsx'
 import { SidebarToggle, type SidebarToggleInjected } from './mobile/SidebarToggle.tsx'
 import { VENDOR_CHROME_HIDE_CSS } from './mobile/vendor-chrome-hide.css.ts'
+import { TAP_HIGHLIGHT_CSS } from './mobile/tap-highlight.css.ts'
+import { TopBarFold } from './mobile/top-bar-fold.ts'
+import { TOP_BAR_FOLD_CSS } from './mobile/top-bar-fold.css.ts'
+import { NewSessionDrawer } from './mobile/new-session-drawer.ts'
+import { SidebarSessionDismiss } from './mobile/sidebar-session-dismiss.ts'
+import { SidebarReorder } from './mobile/sidebar-reorder.ts'
+import { SIDEBAR_REORDER_CSS } from './mobile/sidebar-reorder.css.ts'
 import { EXTERNAL_OPEN_ID, externalOpenDefinition } from './mobile/external-open-paths.ts'
 import { ExternalOpenTab } from './mobile/external-open.tsx'
 import { SettingsDocumentAction } from './mobile/settings-document.ts'
@@ -65,6 +73,8 @@ import { BackStackSignal } from './mobile/back-stack.ts'
 import { MAIN_PANEL_BACK_CSS } from './mobile/main-panel-back.css.ts'
 import { MainPanelBackMount } from './mobile/main-panel-back.ts'
 import { PanelNavDrawer } from './mobile/panel-nav-drawer.ts'
+import { MobileSidebarGestures } from './mobile/sidebar-gestures.ts'
+import { SidebarDragPreview } from './mobile/sidebar-drag-preview.ts'
 import { SessionMarker, type SessionsFace } from './mobile/session-marker.ts'
 import {
   BROWSER_TAB_ID, BROWSER_TAB_KIND, LEGACY_BROWSER_TAB_ID, LEGACY_BROWSER_TAB_KIND,
@@ -166,6 +176,15 @@ export function apply(ctx: ClientContext): void {
   // upstream CSS Modules class names are hashed and unreachable from here,
   // so the stylesheet targets the dialog's ARIA attributes instead.
   ctx.effect(() => injectStyle('mobile-settings', MOBILE_SETTINGS_CSS), 'ui-responsive: mobile settings styles')
+
+  // 0.14.7-B 竖屏设置分层：设置首页（分类列表）→ 二级页（可操作设置）。列表本身仍由上游按注册
+  // 顺序渲染（不硬编码、不排序、不隐藏注册项）；本容器只写层级属性 + 返回控件 + 我方自有分区的
+  // 一行短说明。横屏（无 mobile-form 标记）不写任何东西，布局与行为不变。
+  ctx.effect(() => {
+    const nav = new MobileSettingsNav()
+    nav.attach()
+    return () => { nav.detach() }
+  }, 'ui-responsive: mobile settings layering')
 
   // Composer control-row narrow fix: the 176px model pill overlaps the
   // permission pill below the 400px breakpoint; cap it on phones.
@@ -317,6 +336,23 @@ export function apply(ctx: ClientContext): void {
   // See the module header for why this is a CSS override on the vendor's own
   // attribute rather than a vendor edit.
   ctx.effect(() => injectStyle('vendor-chrome-hide', VENDOR_CHROME_HIDE_CSS), 'ui-responsive: hide vendor header chrome')
+
+  // 0.14.7 点按蓝色蒙层：WebView 的 UA 默认 -webkit-tap-highlight-color 是 ICS 蓝，声明在 :root
+  // 让它被整棵文档继承（该属性可继承），只抹这一条，不动上游的 :active 与 :focus-visible 反馈。
+  ctx.effect(() => injectStyle('tap-highlight', TAP_HIGHLIGHT_CSS), 'ui-responsive: clear WebView tap highlight')
+
+  // 0.14.7 长按拖动重排：只驱动上游既有的 DnD handler（触摸屏没有原生 drag 触发路径），
+  // 不复制排序状态、不写持久化；样式只给激活反馈。
+  ctx.effect(() => injectStyle('sidebar-reorder', SIDEBAR_REORDER_CSS), 'ui-responsive: sidebar reorder feedback')
+
+  // 0.14.7 竖屏顶栏插件 UI 折叠：座位里实际挂载的插件节点整体改由浮动面板呈现（不搬 React 节点，
+  // 只换座位容器自己的呈现），箭头挂上游的 [data-conversation-tabs]。横屏（无 mobile-form）不介入。
+  ctx.effect(() => injectStyle('top-bar-fold', TOP_BAR_FOLD_CSS), 'ui-responsive: mobile top bar fold styles')
+  ctx.effect(() => {
+    const fold = new TopBarFold()
+    fold.attach()
+    return () => { fold.detach() }
+  }, 'ui-responsive: mobile top bar fold')
 
   // Export-result dialog: the shell's session-export download finishes on a
   // background thread and reports through window.__dshExportResult. The bridge
@@ -521,6 +557,103 @@ export function apply(ctx: ClientContext): void {
       backStack.detach()
     }
   }, 'ui-responsive: back-stack signal (page layers → shell back gate)')
+
+  // APK #335: narrow-screen content swipes reuse the layout and right-sidebar
+  // controllers. The two preferences are independent and are read at gesture
+  // start, so settings changes take effect without remounting this listener.
+  ctx.effect(() => {
+    const right = ctx.get('sidebarRight') as { isExpanded(): boolean; toggleExpanded(): void } | undefined
+    const frame = (): HTMLElement | null => document.querySelector('[data-dsh-frame]')
+    // 0.14.7 实时跟手：手势源只上报展开度，屏幕位移由这个消费方落点。它自己管理内联
+    // transform 的写入与清理，并在松手后交还给 CSS 过渡（见 sidebar-drag-preview.ts）。
+    const preview = new SidebarDragPreview()
+    const gestures = new MobileSidebarGestures({
+      mobileForm: () => document.documentElement.hasAttribute('data-dsh-mobile-form'),
+      leftOpen: () => {
+        const root = frame()
+        return root !== null && !root.hasAttribute('data-sidebar-collapsed')
+      },
+      rightOpen: () => right?.isExpanded() ?? false,
+      mainPanelSelected: () => ctx.layout.panelInfo.getSnapshot().activePanelId !== null,
+      openLeft: () => { ctx.layout.toggleSidebar() },
+      // task-7：回退用的**真正收起**动作。拖动中一旦确认 open-left 意图，手势源会立刻调
+      // openLeft() 让上游挂载完整抽屉内容（否则屏幕上是被平移的收起导轨，"内容不完整"）；
+      // 松手不够阈值 / touchcancel / 被原生滚动抢走时，必须有一个只做"收起"的动作把它收回。
+      // 不能复用 returnToConversation：那里还有 selectPanel(null)，会误伤用户选中的中栏面板。
+      // 收起抽屉在本插件里本来就只有 toggleSidebar 这一条通路（见下方 NewSessionDrawer 与
+      // PanelNavDrawer 的 collapseDrawer），调用前手势源已用 leftOpen() 判定过，因此不会误开。
+      closeLeft: () => { ctx.layout.toggleSidebar() },
+      returnToConversation: () => {
+        // Settings is the one dialog nested in the drawer; dismiss its own
+        // back-stack layer before collapsing the drawer and selecting session.
+        const settings = document.querySelector<HTMLElement>('[data-dsh-settings-dialog]')
+        if (settings !== null) {
+          const consumed = window.__dshBack?.() ?? false
+          if (!consumed) {
+            const mask = settings.parentElement?.querySelector(':scope > [aria-hidden="true"]')
+              ?? settings.querySelector(':scope > [aria-hidden="true"]')
+            if (mask !== null && mask !== undefined) {
+              mask.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+              mask.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+            }
+          }
+        }
+        const root = frame()
+        if (root !== null && !root.hasAttribute('data-sidebar-collapsed')) ctx.layout.toggleSidebar()
+        ctx.layout.selectPanel(null)
+      },
+      openRight: () => { if (right !== undefined && !right.isExpanded()) right.toggleExpanded() },
+      closeRight: () => { if (right?.isExpanded()) right.toggleExpanded() },
+      previewLeft: preview.previewLeft,
+      previewRight: preview.previewRight,
+      // 手势源保证顺序是「先提交开合状态、后调 endPreview」，所以这里只撤内联位移，
+      // 不改状态：清空后 CSS transition 从手指停留的位置平滑收敛到刚提交的状态。
+      endPreview: preview.endPreview,
+    })
+    gestures.attach()
+    return () => { gestures.detach() }
+  }, 'ui-responsive: narrow-screen sidebar content swipes')
+
+  // apk #349：抽屉里点「新建会话」后抽屉不收、键盘残留（用户看到的「停在抽屉里，还得手动关」）。
+  // 真因：上游 replaceMain 只在 panel==='reveal' 时调 selectPanel(null)（ui-workspace navigation.ts:403），
+  // 停在会话时 activePanelId 本来就是 null → 不发通知；而本插件收起抽屉的唯一通路
+  // panel-nav-drawer.ts:54 只认「null → panel」那一次转变 → 抽屉无人收起。
+  // 这里按 DOM 事实判定（上游 CSS Modules 保留 newSession 原名 + 必须位于 sidebarCol 内），
+  // 与手势的 returnToConversation 走同一个动作（toggleSidebar），不新增第二套抽屉状态机。
+  ctx.effect(() => {
+    const drawer = new NewSessionDrawer({
+      mobileForm: () => document.documentElement.hasAttribute('data-dsh-mobile-form'),
+      drawerCollapsed: () => {
+        const root = document.querySelector<HTMLElement>('[data-dsh-frame]')
+        return root === null || root.hasAttribute('data-sidebar-collapsed')
+      },
+      collapseDrawer: () => { ctx.layout.toggleSidebar() },
+    })
+    drawer.attach()
+    return () => { drawer.detach() }
+  }, 'ui-responsive: new session from drawer collapses it')
+
+  // 从侧栏选择已有会话：回到正文但不自动拉起软键盘，保留行内菜单与长按重排。
+  ctx.effect(() => {
+    const dismiss = new SidebarSessionDismiss({
+      mobileForm: () => document.documentElement.hasAttribute('data-dsh-mobile-form'),
+      drawerCollapsed: () => {
+        const root = document.querySelector<HTMLElement>('[data-dsh-frame]')
+        return root === null || root.hasAttribute('data-sidebar-collapsed')
+      },
+      collapseDrawer: () => { ctx.layout.toggleSidebar() },
+    })
+    dismiss.attach()
+    return () => { dismiss.detach() }
+  }, 'ui-responsive: sidebar conversation selection dismisses drawer')
+
+  // 0.14.7（Spec §2.2）侧边栏会话行长按拖动重排。与上面的 MobileSidebarGestures 靠 DOM 属性
+  // 互斥（不靠注册顺序）：重排激活期间在 <html> 打标记，R1 手势据此拒绝认领 / 中途放弃。
+  ctx.effect(() => {
+    const reorder = new SidebarReorder()
+    reorder.attach()
+    return () => { reorder.detach() }
+  }, 'ui-responsive: sidebar long-press reorder')
 
   // FX1-C (2026-09-27, user): the sidebar 插件 row switches the centre column to
   // upstream plugin-manager main panel, which is neither a dialog nor a sidebar layer -

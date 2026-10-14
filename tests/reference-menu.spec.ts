@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 // ReferenceMenuEnhancer (apk #163): checkbox multi-select, folder-body drill, file-body pass-through.
+// fixture 使用上游真实行 id（optionId(source, index)），因为增强层按源名判别触发源。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { ReferenceMenuEnhancer } from '../src/client/mobile/reference-menu.ts'
 
@@ -13,9 +14,12 @@ function buildMenu(): void {
   menu.setAttribute('data-trigger-menu', '')
   const list = document.createElement('div')
   list.setAttribute('role', 'listbox')
-  for (const [label, directory] of [['sub/', true], ['alpha.txt', false]] as const) {
+  for (const [index, [label, directory]] of ([['sub/', true], ['alpha.txt', false]] as const).entries()) {
     const row = document.createElement('button')
     row.setAttribute('role', 'option')
+    // 上游 MenuView 的行 id = optionId(source, index)；引用源名是 'reference'。
+    // 本增强层按该 id 判别触发源（见 reference-menu.ts sourceOfRow），fixture 必须与上游同形。
+    row.id = 'dsh-slash-option-reference-' + String(index)
     const name = document.createElement('span')
     name.className = 'x_itemName'
     name.textContent = label

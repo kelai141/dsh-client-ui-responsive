@@ -26,6 +26,7 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Single source of truth for the bridge types (incl. the Window.androidBridge global).
 import type {} from '../android-bridge.ts'
+import { sidebarSwipeEnabled, setSidebarSwipeEnabled } from '../mobile/sidebar-gestures.ts'
 
 /** Full section props: the settings shell supplies only `close`. */
 export type GeneralSettingsProps = PropsRuntime<'settings.general.item'>
@@ -53,7 +54,7 @@ function readImmersive(): boolean {
 }
 
 /**
- * Render the Android general-settings rows (immersive and screen scope).
+ * Render the Android display and mobile sidebar-gesture settings.
  * @param props - composed slot props (contract/slots.ts).
  * @returns the section element tree.
  */
@@ -62,6 +63,18 @@ export function GeneralSettings(_props: GeneralSettingsProps) {
   const [immersive, refreshImmersive] = useShellState<boolean>(readImmersive)
   /** 写失败回执（S3-17：本项是设置页里唯一**没有**失败反馈路径的开关）。 */
   const [notice, setNotice] = useState<string | null>(null)
+  const [leftSwipe, setLeftSwipe] = useState(() => sidebarSwipeEnabled('left'))
+  const [rightSwipe, setRightSwipe] = useState(() => sidebarSwipeEnabled('right'))
+
+  const toggleSidebarSwipe = useCallback((side: 'left' | 'right', enabled: boolean) => {
+    if (!setSidebarSwipeEnabled(side, enabled)) {
+      setNotice('滑动设置没有保存：浏览器存储不可用。')
+      return
+    }
+    setNotice(null)
+    if (side === 'left') setLeftSwipe(enabled)
+    else setRightSwipe(enabled)
+  }, [])
 
   const toggleImmersive = useCallback((enabled: boolean) => {
     setNotice(null)
@@ -105,6 +118,16 @@ export function GeneralSettings(_props: GeneralSettingsProps) {
         <span>沉浸式状态栏</span>
       </label>
       <p className="dsh-dev-hint">常态隐藏系统状态栏，边缘滑动临时呼出；关闭后常驻显示。</p>
+      <label className="dsh-dev-row dsh-dev-switch" data-dsh-sidebar-swipe="left">
+        <input type="checkbox" checked={leftSwipe} onChange={(e) => toggleSidebarSwipe('left', e.target.checked)} />
+        <span>左侧栏滑动</span>
+      </label>
+      <label className="dsh-dev-row dsh-dev-switch" data-dsh-sidebar-swipe="right">
+        <input type="checkbox" checked={rightSwipe} onChange={(e) => toggleSidebarSwipe('right', e.target.checked)} />
+        <span>右侧栏滑动</span>
+      </label>
+      {/* 两侧栏各一行说明会把「屏幕外侧窄边保留给系统手势」逐字重复两遍；合成一行说清同一件事。 */}
+      <p className="dsh-dev-hint">手机内容区左右滑动开合两侧栏；屏幕外侧窄边保留给系统手势。</p>
       {notice !== null && <p className="dsh-dev-warn">{notice}</p>}
     </div>
   )

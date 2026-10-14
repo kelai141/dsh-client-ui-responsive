@@ -14,9 +14,11 @@ function buildMenu(labels: string[]): void {
   menu.setAttribute('data-trigger-menu', '')
   const list = document.createElement('div')
   list.setAttribute('role', 'listbox')
-  for (const label of labels) {
+  for (const [index, label] of labels.entries()) {
     const row = document.createElement('button')
     row.setAttribute('role', 'option')
+    // 上游行 id = optionId(source, index)；默认 fixture 扮演 @ 引用菜单。
+    row.id = 'dsh-slash-option-reference-' + String(index)
     const name = document.createElement('span')
     name.className = 'x_itemName'
     name.textContent = label
@@ -135,5 +137,113 @@ describe('ReferenceMenuEnhancer #169', () => {
     expect(list[0].hasAttribute('data-dsh-ref-on')).toBe(true)
     expect(list[1].hasAttribute('data-dsh-ref-on')).toBe(true)
     expect(document.querySelector('[data-dsh-ref-bar-count]')?.textContent).toContain('2')
+  })
+})
+
+/**
+ * 触发源门（2026-10-11，「+」菜单串味）。
+ *
+ * 上游把 `/`（指令）和 `@`（引用）渲染进**同一个** [data-trigger-menu] 容器，
+ * 旧实现只判「菜单在不在场」，于是普通「+」菜单的每一行都被插上复选框
+ * （真机实测 9/9 行：文件/目标/计划/反馈/压缩/权限/模型/下载日志/插件项）。
+ * 判别字段是上游行 id 里的源名（optionId(source, index)，MenuView.tsx:38-40）——
+ * 实测容器属性、sectionTitle 属性在两种菜单里都拿不到源名，只有行 id 稳定在场。
+ */
+describe('ReferenceMenuEnhancer 触发源门（「+」菜单不得出现复选框）', () => {
+  /** 上游「/」指令菜单形状：同样的容器、同样的 role=option，但行 id 的源名是 'command'。 */
+  function buildCommandMenu(): void {
+    document.querySelector('[data-trigger-menu]')?.remove()
+    const menu = document.createElement('div')
+    menu.setAttribute('data-trigger-menu', '')
+    const list = document.createElement('div')
+    list.setAttribute('role', 'listbox')
+    for (const [index, label] of ['文件', '目标', '计划'].entries()) {
+      const row = document.createElement('button')
+      row.setAttribute('role', 'option')
+      row.id = 'dsh-slash-option-command-' + String(index)
+      const name = document.createElement('span')
+      name.className = 'x_itemName'
+      name.textContent = label
+      row.appendChild(name)
+      list.appendChild(row)
+    }
+    menu.appendChild(list)
+    document.body.appendChild(menu)
+  }
+
+  it('普通「+」菜单：0 个复选框、0 个多选条（复现原缺陷的判据）', async () => {
+    document.documentElement.setAttribute('data-dsh-mobile-form', '')
+    buildCommandMenu()
+    enhancer.attach()
+    await flush()
+    expect(checkboxes().length).toBe(0)
+    expect(document.querySelector('[data-dsh-ref-bar]')).toBeNull()
+    expect(rows().every(row => !row.hasAttribute('data-dsh-ref-key'))).toBe(true)
+  })
+
+  it('@ 菜单：复选框照常注入（引用源不受影响）', async () => {
+    document.documentElement.setAttribute('data-dsh-mobile-form', '')
+    enhancer.attach()
+    await flush()
+    expect(checkboxes().length).toBe(2)
+  })
+
+  it('上游复用同一容器从 @ 切到 / 时，已注入的复选框被主动撤掉', async () => {
+    document.documentElement.setAttribute('data-dsh-mobile-form', '')
+    enhancer.attach()
+    await flush()
+    expect(checkboxes().length).toBe(2)
+    tap(rows()[0])
+    expect(document.querySelector('[data-dsh-ref-bar]')).not.toBeNull()
+
+    // 同一个 MenuSurface 节点改承载指令菜单（上游就是复用容器渲染的）
+    const menu = document.querySelector('[data-trigger-menu]')!
+    const list = menu.querySelector('[role="listbox"]')!
+    list.innerHTML = ''
+    for (const [index, label] of ['压缩', '权限'].entries()) {
+      const row = document.createElement('button')
+      row.setAttribute('role', 'option')
+      row.id = 'dsh-slash-option-command-' + String(index)
+      row.textContent = label
+      list.appendChild(row)
+    }
+    await flush()
+
+    expect(checkboxes().length).toBe(0)
+    expect(document.querySelector('[data-dsh-ref-bar]')).toBeNull()
+    expect(rows().every(row => !row.hasAttribute('data-dsh-ref-key'))).toBe(true)
+  })
+
+  it('候选还在路上（无 option 行）不清态：不清掉用户刚勾的选择', async () => {
+    document.documentElement.setAttribute('data-dsh-mobile-form', '')
+    enhancer.attach()
+    await flush()
+    tap(rows()[0])
+    expect(document.querySelector('[data-dsh-ref-bar-count]')?.textContent).toContain('1')
+
+    // 上游在查询细化时先渲染骨架行（没有 role=option），此时必须保留选择
+    document.querySelector('[data-trigger-menu] [role="listbox"]')!.innerHTML = ''
+    await flush()
+    expect(document.querySelector('[data-dsh-ref-bar]')).not.toBeNull()
+    expect(document.querySelector('[data-dsh-ref-bar-count]')?.textContent).toContain('1')
+  })
+
+  it('撤掉注入后不留下孤儿方框（菜单关闭再重开是干净的）', async () => {
+    document.documentElement.setAttribute('data-dsh-mobile-form', '')
+    enhancer.attach()
+    await flush()
+    tap(rows()[0])
+    document.querySelector('[data-trigger-menu]')?.remove()
+    await flush()
+    expect(checkboxes().length).toBe(0)
+
+    buildCommandMenu()
+    await flush()
+    expect(checkboxes().length).toBe(0)
+    document.querySelector('[data-trigger-menu]')?.remove()
+    buildMenu(['sub/', 'alpha.txt'])
+    await flush()
+    // 回到 @ 菜单后重新注入，且只有一行是干净的一个方框
+    expect(checkboxes().length).toBe(2)
   })
 })

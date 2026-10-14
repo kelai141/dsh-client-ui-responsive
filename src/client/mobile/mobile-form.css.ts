@@ -34,6 +34,18 @@ export const MOBILE_FORM_CSS: string = `
 }
 
 @media (max-width: 767px) {
+  /* touch-action 在触点按下时采样，touchstart 动态修改对当前手势无效。
+     每个触点到最近滚动容器的祖先交集都必须保留 pan-y，而横向滚动容器及其内容
+     由手势模块预先标记放行。纵向滚动和双指缩放继续由浏览器处理。 */
+  [data-dsh-frame], [data-dsh-frame] * {
+    touch-action: pan-y pinch-zoom;
+  }
+  [data-dsh-frame][data-dsh-horizontal-scroll],
+  [data-dsh-frame] [data-dsh-horizontal-scroll],
+  [data-dsh-frame] [data-dsh-horizontal-scroll] * {
+    touch-action: auto;
+  }
+
   [data-dsh-frame] {
     grid-template-columns: 0 minmax(0, 1fr) 0 !important;
   }
@@ -107,6 +119,27 @@ export const MOBILE_FORM_CSS: string = `
     box-sizing: border-box;
     padding-top: var(--dsh-mobile-top-inset, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* 0.14.7 实时跟手（sidebar-gestures.ts 的 DRAWER_DRAGGING_ATTR）。
+     两根侧栏都靠 transition 做开合，拖动期间每次 touchmove 写入新位移都会被这 200ms
+     过渡追着跑，手感和"人为阻尼"一样迟滞。拖动标记存在时关掉过渡，位移与手指同帧；
+     松手撤掉标记，过渡立刻恢复，于是从手指停在的位置平滑收敛到最终态（不会先弹回 0）。
+     选择器必须对准**真正带过渡的元素**，两边并不一样：
+     - 左抽屉本体就是被位移的那个元素（上方 transform: translateX(-100%)）；
+     - 右栏本体没有 transform 过渡，上游把展开/收起位移写在其 dockkit 子元素上
+       （ui-sidebar-right 的 lib 内联样式：panel [data-dockkit-host=dock|empty|divider]
+       → translateX(var(--dsh-sidebar-width)) + visibility 过渡）。只关右栏本体等于没关，
+       右栏拖动期间仍吃那 200ms，表现为"跟不上手"。
+     这三个选择器与 sidebar-drag-preview.ts 的 RIGHT_SLIDE_SELECTOR 逐字对齐：那里写内联
+     位移，这里关过渡，两边必须同一批元素，否则又会漂移成"位移写了但过渡没关"。
+     设置面板打开时左抽屉被钉成 transform:none（上方那条规则），拖动预览的位移因此
+     被内联样式覆盖 —— 这是有意的：设置态不参与抽屉跟手。 */
+  html[data-dsh-drawer-dragging] [data-dsh-frame] > [class*='sidebarCol'],
+  html[data-dsh-drawer-dragging] [data-sidebar-right-panel='fullscreen'] [data-dockkit-host='dock'],
+  html[data-dsh-drawer-dragging] [data-sidebar-right-panel='fullscreen'] [data-dockkit-empty],
+  html[data-dsh-drawer-dragging] [data-sidebar-right-panel='fullscreen'] [data-dockkit-divider] {
+    transition: none !important;
   }
 }
 
