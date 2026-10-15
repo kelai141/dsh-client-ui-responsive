@@ -1,3 +1,5 @@
+import { flushSync } from 'react-dom'
+
 /**
  * 手机侧边栏会话行的长按拖动重排（0.14.7 / Spec §2.2）。
  *
@@ -10,11 +12,11 @@
  * 不写持久化、不判跨项目 —— 否则就是第二套排序真源，必然与上游语义漂移。
  *
  * ## 为什么必须翻译
- * HTML5 DnD 在触摸屏上没有原生触发路径：Chromium 不会把长按拖动变成 drag 事件，所以上游
- * 那套 handler 在手机上永远收不到。这里按 `dragstart → dragover → drop → dragend` 的顺序
- * 合成事件，派发到上游真正挂 handler 的行元素上。React 在根容器委托监听并按键解析目标，
- * 因此合成事件会被上游 handler 正常收到。`dataTransfer` 在浏览器里是只读对象，用最小
- * polyfill（effectAllowed / dropEffect / setData / getData）顶上 —— 上游只用到这几项。
+ * The adapter owns a predictable touch lifecycle and delegates ordering to the
+ * upstream React row handlers. Android WebView may also initiate native HTML
+ * dragging after a long press; that competing default must be cancelled before
+ * it terminates the touch stream. Use a native DataTransfer when available and
+ * include transfer types in the fallback for global file-drop listeners.
  *
  * ## 与 R1 的互斥
  * 拖动重排期间在 `<html>` 上打 REORDER_ATTR；sidebar-gestures.ts（R1 实时跟手）在 touchstart
@@ -45,8 +47,10 @@ const MOVE_SLOP_PX = 10
 /** 上游 onDragStart 写入的格式（Rows.tsx:606 的 `text/plain`）。 */
 const DRAG_FORMAT = 'text/plain'
 
-/** 上游只读取这四项，因此 polyfill 只需覆盖它们。 */
+/** Transfer metadata is shared by row handlers and document-level file-drop listeners. */
 interface DragTransfer {
+  /** Global file-drop listeners also inspect this event before React handles it. */
+  readonly types: readonly string[]
   /** Rows.tsx:605 `effectAllowed = 'move'`。 */
   effectAllowed: string
   /** Rows.tsx:615 `dropEffect = 'move'`。 */
@@ -59,8 +63,14 @@ interface DragTransfer {
 
 /** 挂到事件上的最小 dataTransfer；初值是源会话 id，setData 会覆盖它。 */
 function createTransfer(sourceId: string): DragTransfer {
+  if (typeof DataTransfer === 'function') {
+    const transfer = new DataTransfer()
+    transfer.setData(DRAG_FORMAT, sourceId)
+    return transfer
+  }
   let payload = sourceId
   return {
+    types: [DRAG_FORMAT],
     effectAllowed: 'none',
     dropEffect: 'none',
     setData(format: string, data: string): void { if (format === DRAG_FORMAT) payload = data },
@@ -88,6 +98,11 @@ function dragEvent(type: string, transfer: DragTransfer, clientY: number): Event
   Object.defineProperty(event, 'dataTransfer', { value: transfer })
   Object.defineProperty(event, 'clientY', { value: clientY })
   return event
+}
+
+/** Each synthetic phase must observe the React state committed by its predecessor. */
+function dispatchDrag(row: HTMLElement, type: string, transfer: DragTransfer, clientY: number): void {
+  flushSync(() => { row.dispatchEvent(dragEvent(type, transfer, clientY)) })
 }
 
 /** 行的插入半区，与上游 `rowHalf`（Rows.tsx:200）同一口径：行上半 -> before。 */
@@ -124,6 +139,8 @@ export class SidebarReorder {
     document.addEventListener('touchend', this.onTouchEnd, true)
     document.addEventListener('touchcancel', this.onTouchCancel, true)
     document.addEventListener('scroll', this.onScroll, { capture: true, passive: true })
+    document.addEventListener('dragstart', this.onNativeDragStart, true)
+    document.addEventListener('contextmenu', this.onContextMenu, true)
   }
 
   /** 清理监听、计时器与全部标记；重复调用无副作用。 */
@@ -135,12 +152,15 @@ export class SidebarReorder {
     document.removeEventListener('touchend', this.onTouchEnd, true)
     document.removeEventListener('touchcancel', this.onTouchCancel, true)
     document.removeEventListener('scroll', this.onScroll, true)
+    document.removeEventListener('dragstart', this.onNativeDragStart, true)
+    document.removeEventListener('contextmenu', this.onContextMenu, true)
     this.cancelPending()
-    this.endDrag()
+    this.cancelDrag()
   }
 
   private readonly onTouchStart = (event: TouchEvent): void => {
     this.cancelPending()
+    this.cancelDrag()
     if (!document.documentElement.hasAttribute(MOBILE_FORM_ATTR) || event.touches.length !== 1) return
     const touch = event.touches[0]
     if (touch === null) return
@@ -157,6 +177,7 @@ export class SidebarReorder {
   private readonly onTouchMove = (event: TouchEvent): void => {
     const active = this.active
     if (active !== null) {
+      if (event.touches.length !== 1) { this.cancelDrag(); return }
       const touch = findTouch(event.touches, active.id)
       if (touch === undefined) return
       // 拖动期间必须拦掉原生滚动：列表一旦在手指下滚动，elementFromPoint 命中的行就会漂移，
@@ -190,27 +211,25 @@ export class SidebarReorder {
     const active = this.active
     if (active === null) return
     const touch = findTouch(event.changedTouches, active.id)
+    if (event.touches.length !== 0 || touch === undefined) { this.cancelDrag(); return }
     // 落点按抬手位置再解析一次：最后一次 touchmove 到抬手之间可能还有位移。
-    if (touch !== undefined) {
-      const finalRow = this.rowAt(touch.clientX, touch.clientY)
-      if (finalRow !== null) {
-        active.over = finalRow
-        active.half = rowHalf(finalRow, touch.clientY)
-      }
-    }
-    const clientY = touch?.clientY ?? 0
+    const finalRow = this.rowAt(touch.clientX, touch.clientY)
+    if (finalRow === null) { this.cancelDrag(); return }
+    active.over = finalRow
+    active.half = rowHalf(finalRow, touch.clientY)
+    const clientY = touch.clientY
     const transfer = createTransfer('')
     // drop -> dragend 与原生顺序一致：上游 drop 落盘，dragend 收尾（其 end 有幂等守卫）。
     if (active.over !== null && active.half !== null) {
-      active.over.dispatchEvent(dragEvent('drop', transfer, clientY))
+      dispatchDrag(active.over, 'drop', transfer, clientY)
     }
-    active.source.dispatchEvent(dragEvent('dragend', transfer, clientY))
+    dispatchDrag(active.source, 'dragend', transfer, clientY)
     this.endDrag()
   }
 
   private readonly onTouchCancel = (): void => {
     this.cancelPending()
-    this.endDrag()
+    this.cancelDrag()
   }
 
   /** 列表滚动（含惯性）说明手指不在「按住」语义上：取消尚未激活的长按。 */
@@ -231,7 +250,7 @@ export class SidebarReorder {
     this.active = { id: pending.id, source: pending.source, over: null, half: null }
     document.documentElement.setAttribute(REORDER_ATTR, '')
     pending.source.setAttribute(REORDER_SOURCE_ATTR, '')
-    pending.source.dispatchEvent(dragEvent('dragstart', createTransfer(sourceId), pending.y))
+    dispatchDrag(pending.source, 'dragstart', createTransfer(sourceId), pending.y)
   }
 
   /** 按手指位置解析目标行并派发 dragover；只在目标行或半区变化时派发（上游每次都会 setState）。 */
@@ -247,7 +266,7 @@ export class SidebarReorder {
     if (active.over === row && active.half === half) return
     active.over = row
     active.half = half
-    row.dispatchEvent(dragEvent('dragover', createTransfer(''), touch.clientY))
+    dispatchDrag(row, 'dragover', createTransfer(''), touch.clientY)
   }
 
   /** 命中手指位置下的会话行；不在任何行上时返回 null。 */
@@ -262,6 +281,43 @@ export class SidebarReorder {
       this.timer = null
     }
     this.pending = null
+  }
+
+  /** Android WebView may start its own HTML drag after our long-press timer.
+   * Cancel that competing native default before it cancels the touch stream. */
+  private readonly onNativeDragStart = (event: DragEvent): void => {
+    if (!event.isTrusted || !this.ownsRow(event.target)) return
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  private readonly onContextMenu = (event: MouseEvent): void => {
+    if (this.ownsRow(event.target)) event.preventDefault()
+  }
+
+  private ownsRow(target: EventTarget | null): boolean {
+    const source = this.active?.source ?? this.pending?.source
+    return source !== undefined && target instanceof Element && target.closest(SESSION_ROW_SELECTOR) === source
+  }
+
+  /** A source-row drop clears upstream state without persisting a new order.
+   * Upstream dragend alone commits its last hover, so cancellation must first
+   * settle through commitSessionDrag's source-id no-op. React must flush that
+   * settlement before dragend runs against the updated state. */
+  private cancelDrag(): void {
+    const active = this.active
+    if (active === null) return
+    const key = active.source.getAttribute('data-row-key')
+    const source = active.source.isConnected ? active.source
+      : [...document.querySelectorAll<HTMLElement>(SESSION_ROW_SELECTOR)].find(row => row.getAttribute('data-row-key') === key)
+    try {
+      if (source !== undefined) {
+        dispatchDrag(source, 'drop', createTransfer(''), 0)
+        dispatchDrag(source, 'dragend', createTransfer(''), 0)
+      }
+    } finally {
+      this.endDrag()
+    }
   }
 
   /** 撤离拖动：撤根标记与源行标记（漏撤会让 R1 永久拒绝手势、CSS 反馈永久留着）。 */

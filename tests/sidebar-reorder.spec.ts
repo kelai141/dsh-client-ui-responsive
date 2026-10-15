@@ -3,6 +3,9 @@
 // 排序语义与持久化属上游（WorkspaceBrowser.commitSessionDrag / setSessionOrder），
 // 本模块不得复制 —— 因此这里断言的是「派发了哪些 DnD 事件、落到哪个目标行、什么条件下不介入」。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import React, { useRef, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import { flushSync } from 'react-dom'
 import {
   REORDER_ATTR, REORDER_SOURCE_ATTR, SidebarReorder,
 } from '../src/client/mobile/sidebar-reorder.ts'
@@ -267,7 +270,7 @@ describe('拖动过程', () => {
     vi.useRealTimers()
   })
 
-  it('拖到空白处不产生 drop，但 dragend 一定收尾', () => {
+  it('dropping outside settles back on the source before dragend', () => {
     vi.useFakeTimers()
     const source = row('a', 100)
     const events = watch(source)
@@ -275,7 +278,7 @@ describe('拖动过程', () => {
     vi.advanceTimersByTime(400)
     touch('touchmove', 100, 900, source)
     touch('touchend', 100, 900, source)
-    expect(events).toEqual(['dragstart', 'dragend'])
+    expect(events).toEqual(['dragstart', 'drop', 'dragend'])
     expect(document.documentElement.hasAttribute(REORDER_ATTR)).toBe(false)
     vi.useRealTimers()
   })
@@ -398,5 +401,104 @@ describe('detach 可逆', () => {
     vi.advanceTimersByTime(400)
     expect(events).toEqual(['dragstart'])
     vi.useRealTimers()
+  })
+})
+
+// Exercise React batching and the upstream source-drop/no-op contract together.
+function reactDragOwner() {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  const writes: string[] = []
+  let dragging = false
+  function Owner() {
+    const [drag, setDrag] = useState<{ source: string; over: string | null } | null>(null)
+    const committed = useRef(false)
+    dragging = drag !== null
+    const commit = (target: string) => {
+      if (drag === null || committed.current) return
+      committed.current = true
+      setDrag(null)
+      if (drag.source !== target) writes.push(`${drag.source}->${target}`)
+    }
+    return React.createElement('div', {}, ...['a', 'b'].map(id => React.createElement('div', {
+      key: id, 'data-row-key': `session:${id}`, draggable: true,
+      onDragStart: () => { committed.current = false; setDrag({ source: id, over: null }) },
+      onDragOver: () => { if (drag !== null) setDrag({ ...drag, over: id }) },
+      onDrop: () => commit(id),
+      onDragEnd: () => {
+        if (drag?.over != null) commit(drag.over)
+        else setDrag(null)
+        committed.current = false
+      },
+    }, id)))
+  }
+  flushSync(() => { root.render(React.createElement(Owner)) })
+  const rows = [...container.querySelectorAll<HTMLElement>('[data-row-key]')]
+  rows.forEach((element, index) => {
+    const top = 100 + index * 100
+    element.getBoundingClientRect = () => ({ x: 0, y: top, left: 0, right: 200, top, bottom: top + 40, width: 200, height: 40, toJSON: () => ({}) })
+  })
+  return { source: rows[0]!, writes, dragging: () => dragging, dispose: () => { flushSync(() => root.unmount()); container.remove() } }
+}
+
+describe('React drag ownership and cancellation', () => {
+  it.each(['touchcancel', 'second-finger', 'unmatched-end', 'outside', 'detach'])('%s clears ownership without persisting a reorder, then permits a new drag', kind => {
+    vi.useFakeTimers()
+    const owner = reactDragOwner()
+    try {
+      touch('touchstart', 100, 120, owner.source)
+      vi.advanceTimersByTime(400)
+      touch('touchmove', 100, 230, owner.source)
+      expect(owner.dragging()).toBe(true)
+      if (kind === 'touchcancel') touch('touchcancel', 100, 230, owner.source)
+      if (kind === 'second-finger') {
+        touch('touchstart', 120, 230, owner.source, 2, [1, 2])
+        touch('touchend', 120, 230, owner.source, 2, [1])
+      }
+      if (kind === 'unmatched-end') touch('touchend', 100, 230, owner.source, 2)
+      if (kind === 'outside') touch('touchend', 100, 900, owner.source)
+      if (kind === 'detach') reorder.detach()
+      expect(owner.writes).toEqual([])
+      expect(owner.dragging()).toBe(false)
+      expect(document.documentElement.hasAttribute(REORDER_ATTR)).toBe(false)
+      reorder.attach()
+      touch('touchstart', 100, 120, owner.source)
+      vi.advanceTimersByTime(400)
+      touch('touchmove', 100, 230, owner.source)
+      touch('touchend', 100, 230, owner.source)
+      expect(owner.writes).toEqual(['a->b'])
+      expect(owner.dragging()).toBe(false)
+    } finally {
+      owner.dispose()
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('global file-drop interoperability', () => {
+  it('exposes text/plain types before the React row drop handler runs', () => {
+    vi.useFakeTimers()
+    const owner = reactDragOwner()
+    const observed: boolean[] = []
+    const onDrop = (event: Event) => {
+      const transfer = (event as DragEvent).dataTransfer!
+      observed.push(transfer.types.includes('Files'))
+      expect(transfer.types).toContain('text/plain')
+    }
+    document.addEventListener('drop', onDrop, true)
+    try {
+      touch('touchstart', 100, 120, owner.source)
+      vi.advanceTimersByTime(400)
+      touch('touchmove', 100, 230, owner.source)
+      touch('touchcancel', 100, 230, owner.source)
+      expect(observed).toEqual([false])
+      expect(owner.writes).toEqual([])
+      expect(owner.dragging()).toBe(false)
+    } finally {
+      document.removeEventListener('drop', onDrop, true)
+      owner.dispose()
+      vi.useRealTimers()
+    }
   })
 })

@@ -30,7 +30,7 @@ export class NativeBrowserPresentation implements BrowserPresentation {
     let queued = 0
     let active = true
     let last = ''
-    let lease: ReturnType<typeof window.setTimeout> | undefined
+    let lease: number | undefined
     const send = (visible: boolean, renew = false): boolean => {
       const tabId = this.options.nativeTabId()
       if (tabId === undefined || stage === null) return false

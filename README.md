@@ -16,6 +16,11 @@ The plugin now keeps upstream's frame and adds only what a phone needs.
 
 ## What it does
 
+Phone session reordering translates a long press into the upstream drag lifecycle.
+Multitouch, cancellation, and out-of-list release settle back on the source row
+without saving a new order. Each phase flushes React state before the next one,
+and transfer metadata remains compatible with global file-drop listeners.
+
 | Area | Contribution |
 |---|---|
 | Phone form (<768px) | CSS over the upstream frame: the left sidebar becomes an off-canvas drawer, the centre column spans the frame, the right Sidebar keeps upstream's own fullscreen slide-over (same 768px threshold), touch drag handles step aside |
