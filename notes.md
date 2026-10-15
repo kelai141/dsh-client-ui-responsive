@@ -17,7 +17,7 @@
 - 受控负控：仅禁用新 CSS 后，同一表格 overflow-x:hidden、scrollLeft=0，ADB 横滑触发 rightOpen=true；恢复 CSS 后原生横滚正常。
 - 16416 横屏 800px：原生横滚 0→444，能看最右列；点击展开右栏有效。
 - 桌面 1280px 细指针：静止 hidden / hover scroll，保持上游行为。
-- 16384 横屏：其原安装存在 api-gateway/client 模块缺失，等待新开发包环境恢复后补验；目前 NOT RUN，不宣称完整三层验收。
+- 16384：安装新壳开发 APK（SHA-256 140d21c5f40be9761f47973aa8f95ef345e1c491d7c7e4fde371dd65a26446a8）后热推相同表格 JS，真实模型生成六列六方案对照。原生横屏 1067px 横滚 0→677→1005→0，竖屏 600px 横滚 0→530→1026；侧栏均关闭，无页面溢出。开发运行时完成代码/CDP/ADB 三层，非最终发布包。
 
 本地证据：/mnt/d/coding/table-gesture-evidence/，其中 portrait-*.json/png、landscape-16416-*.json/png、desktop.json、sidebar-tests.log、ui-ci.log、code-map.log。
 关联：源码 PR https://github.com/kelai141/dsh-client-ui-responsive/pull/40；独立主题修复 https://github.com/kelai141/dsh-mobile-apk/pull/384。
