@@ -27,8 +27,8 @@ export const MOBILE_TABLE_CSS: string = `
 
   [data-dsh-frame] .md-table-wide :is(th, td) {
     /* 不缩字号。窄屏的 30vw 上限会把说明挤成逐字竖排，改用可阅读的列宽。 */
-    min-width: 144px;
-    width: min(55vw, 240px);
+    min-width: 100px;
+    width: auto;
     max-width: min(55vw, 240px);
     padding: 10px 12px;
     white-space: normal;
