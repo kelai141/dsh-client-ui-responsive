@@ -56,6 +56,7 @@ import { KeyboardBoundary } from './keyboard-boundary.ts'
 import { ExportResultChannel, reportUserFacingResult, type ExportResultPayload } from './export-result.ts'
 import { MobileFormMarker } from './mobile/form-marker.ts'
 import { MOBILE_FORM_CSS } from './mobile/mobile-form.css.ts'
+import { MOBILE_TABLE_CSS } from './mobile/mobile-table.css.ts'
 import { MobileChrome, type MobileChromeInjected } from './mobile/MobileChrome.tsx'
 import { SidebarToggle, type SidebarToggleInjected } from './mobile/SidebarToggle.tsx'
 import { VENDOR_CHROME_HIDE_CSS } from './mobile/vendor-chrome-hide.css.ts'
@@ -162,6 +163,7 @@ export function apply(ctx: ClientContext): void {
   // The narrow-form stylesheet: track/drawer geometry plus the top-inset and
   // top-bar variables the other sheets consume.
   ctx.effect(() => injectStyle('mobile-form', MOBILE_FORM_CSS), 'ui-responsive: mobile form styles')
+  ctx.effect(() => injectStyle('mobile-table', MOBILE_TABLE_CSS), 'ui-responsive: touch table reading')
 
   // The mobile-form marker publishes `data-dsh-mobile-form` on <html> and tags
   // the upstream frame root, which carries no stable hook of its own.

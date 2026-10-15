@@ -12,6 +12,7 @@
 // harness 的抽屉内容按 frame 的 collapsed 属性重建（与上游同一判据），拖动中必须已是 FULL_SHAPE。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MOBILE_FORM_CSS } from '../src/client/mobile/mobile-form.css.ts'
+import { MOBILE_TABLE_CSS } from '../src/client/mobile/mobile-table.css.ts'
 import {
   DRAWER_DRAGGING_ATTR, LEFT_SWIPE_KEY, RIGHT_SWIPE_KEY, MobileSidebarGestures, sidebarSwipeEnabled,
 } from '../src/client/mobile/sidebar-gestures.ts'
@@ -1184,5 +1185,43 @@ describe('soft keyboard boundary (0.14.7 §2.1)', () => {
     swipe(h.drawer, 180, 300, 80, 302)
     expect(h.calls.returnToConversation).toHaveBeenCalledOnce()
     expect(document.activeElement).toBe(input)
+  })
+})
+
+
+describe('宽表格首触点与侧栏仲裁', () => {
+  it.each([false, true])('移动端样式启用=%s：首触点的滚动归属，含旧行为负控', (fixed) => {
+    const style = document.createElement('style')
+    document.head.appendChild(style)
+    try {
+      // jsdom 不评估媒体条件；只展开本用例已选定的触屏规则。
+      // 真实 CSS 级联参与 overflow 判断，不伪造 getComputedStyle。
+      style.textContent = MOBILE_TABLE_CSS
+      const media = style.sheet!.cssRules[0] as CSSMediaRule
+      const mobile = Array.from(media.cssRules, rule => rule.cssText).join('\n')
+      style.textContent = '.md-table-wide { overflow-x: hidden; }' + (fixed ? mobile : '')
+      const h = setup()
+      const wrapper = document.createElement('div')
+      wrapper.className = 'md-table-wide'
+      wrapper.innerHTML = '<table><tbody><tr><td>说明列</td></tr></tbody></table>'
+      // jsdom 没有布局引擎，尺寸按设备中的溢出表格建模；不据此声称布局验收。
+      Object.defineProperties(wrapper, { clientWidth: { value: 200 }, scrollWidth: { value: 800 } })
+      h.frame.appendChild(wrapper)
+      const cell = wrapper.querySelector('td')!
+      // 不等 MutationObserver 或 hover，模拟流式输出后立刻横滑。
+      touch('touchstart', 300, 300, cell)
+      const move = touch('touchmove', 100, 302, cell)
+      touch('touchend', 100, 302, cell)
+      expect(move.defaultPrevented).toBe(!fixed)
+      expect(h.calls.openRight).toHaveBeenCalledTimes(fixed ? 0 : 1)
+      if (fixed) {
+        // touch-action 与几何由 WebView/CDP + ADB 验证；jsdom 不实现该属性。
+        // 表格之外仍能展开侧栏，不能用全局禁用手势来掩盖冲突。
+        swipe(h.frame, 300, 300, 100, 302)
+        expect(h.calls.openRight).toHaveBeenCalledOnce()
+      }
+    } finally {
+      style.remove()
+    }
   })
 })
