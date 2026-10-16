@@ -66,6 +66,7 @@ import { TopBarFold } from './mobile/top-bar-fold.ts'
 import { TOP_BAR_FOLD_CSS } from './mobile/top-bar-fold.css.ts'
 import { NewSessionDrawer } from './mobile/new-session-drawer.ts'
 import { SidebarSessionDismiss } from './mobile/sidebar-session-dismiss.ts'
+import { registerConversationDock, ConversationDropZone, conversationAddress, resolveDockSubagent, CONVERSATION_DOCK_CSS } from './mobile/conversation-dock.tsx'
 import { SidebarReorder } from './mobile/sidebar-reorder.ts'
 import { SIDEBAR_REORDER_CSS } from './mobile/sidebar-reorder.css.ts'
 import { EXTERNAL_OPEN_ID, externalOpenDefinition } from './mobile/external-open-paths.ts'
@@ -317,6 +318,15 @@ export function apply(ctx: ClientContext): void {
     label: () => '模型能力',
   }, ModelCapabilitySection))
 
+  // Linux 环境（实验性内部插件）**不由本文件注册**：该分区的唯一注册方是 vendored 的
+  // dsh-linux-bootstrap 客户端插件（plugins/dsh-linux-bootstrap 的 client 条目，id 同为
+  // linux-environment、label 同为「Linux环境」）。dsh-client-ui-slots 对 list 槽的重复 id 是
+  // **抛错**而非叠加，所以这里必须留空——两处都注册会在插件被启用时当场抛错。0.15.0 撤回
+  // 0.14.x 的壳侧同名分区（存在 ≠ 启用，未启用时本就没有任何入口）。
+  //
+  // 插件在内置（hard）插件目录里但默认不启用：它的 Cordis 客户端条目只在被显式启用、拿到
+  // linuxBootstrap 服务后才注册本分区，因此未启用时设置页不出现 Linux 入口。
+
   // Android general-settings rows (issue #59): immersive status-bar toggle.
   // 0.13.3 (D6): the font-size slider retired — upstream ui-theme fontSize
   // (12–17px) covers it natively. The setImmersiveMode shell bridge persists,
@@ -327,6 +337,9 @@ export function apply(ctx: ClientContext): void {
     order: 90,
     label: () => 'Android 显示',
   }, GeneralSettings))
+
+  ctx.inject(['resources', 'sidebarRight', 'sidebarRightTabs'], scope => { registerConversationDock(scope) })
+  ctx.effect(() => injectStyle('conversation-dock', CONVERSATION_DOCK_CSS), 'ui-responsive: conversation drop target')
 
   // ── Frame-wide entries ──────────────────────────────────────────────────
 
@@ -672,11 +685,30 @@ export function apply(ctx: ClientContext): void {
 
   // 0.14.7（Spec §2.2）侧边栏会话行长按拖动重排。与上面的 MobileSidebarGestures 靠 DOM 属性
   // 互斥（不靠注册顺序）：重排激活期间在 <html> 打标记，R1 手势据此拒绝认领 / 中途放弃。
-  ctx.effect(() => {
-    const reorder = new SidebarReorder()
+  ctx.inject(['sidebarRight'], scope => { scope.effect(() => {
+    let pendingFrame = 0
+    const zone = new ConversationDropZone(id => {
+      window.cancelAnimationFrame(pendingFrame)
+      const owner = scope.sidebarRight.mounted.getSnapshot()
+      const open = () => {
+        pendingFrame = 0
+        if (owner === undefined || scope.sidebarRight.mounted.getSnapshot() !== owner) return
+        scope.sidebarRight.openResource(conversationAddress(id), {
+          kind: 'conversation', preferNewPane: window.matchMedia('(orientation: landscape)').matches && scope.sidebarRight.active()?.kind !== 'guide',
+        })
+      }
+      const frame = document.querySelector('[data-dsh-frame]')
+      if (window.innerWidth < 1100 && frame && !frame.hasAttribute('data-sidebar-collapsed')) {
+        ctx.layout.toggleSidebar()
+        // Let React commit the drawer width, then let native ResizeObserver report
+        // split capacity. Cancel on disposal/replacement and reject changed owners.
+        pendingFrame = window.requestAnimationFrame(() => { pendingFrame = window.requestAnimationFrame(open) })
+      } else open()
+    }, () => scope.sidebarRight.mounted.getSnapshot(), row => resolveDockSubagent(row, ctx.sessions, scope.sidebarRight.mounted.getSnapshot()))
+    const reorder = new SidebarReorder(zone)
     reorder.attach()
-    return () => { reorder.detach() }
-  }, 'ui-responsive: sidebar long-press reorder')
+    return () => { window.cancelAnimationFrame(pendingFrame); reorder.detach(); zone.detach() }
+  }, 'ui-responsive: sidebar long-press reorder') })
 
   // FX1-C (2026-09-27, user): the sidebar 插件 row switches the centre column to
   // upstream plugin-manager main panel, which is neither a dialog nor a sidebar layer -

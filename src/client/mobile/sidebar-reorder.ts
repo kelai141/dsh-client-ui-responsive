@@ -24,7 +24,7 @@ import { flushSync } from 'react-dom'
  * preventDefault，而长按判定在位移超过 MOVE_SLOP_PX 时已取消。
  *
  * ## 判定
- * 仅手机形态（`html[data-dsh-mobile-form]`）；触点须落在 `draggable` 的会话行上；计时约
+ * 未接入侧开时仅手机形态；接入侧开后横竖屏均可用。触点须落在会话行或可侧开的子代理行；计时约
  * 400ms；期间明显位移、横向滑动、列表滚动、多指加入一律取消。**未激活前不注册任何会拦截
  * 事件的监听**，因此普通点击与纵向滚动完全不受影响。
  */
@@ -33,6 +33,7 @@ import { flushSync } from 'react-dom'
 const MOBILE_FORM_ATTR = 'data-dsh-mobile-form'
 /** 会话行（Rows.tsx:589 的 `data-row-key={`session:${node.id}`}`）。 */
 const SESSION_ROW_SELECTOR = '[data-row-key^="session:"]'
+const SOURCE_SELECTOR = SESSION_ROW_SELECTOR + ', [role="treeitem"]'
 /** 会话行的 rowKey 前缀，与上游同一字面量。 */
 const SESSION_ROW_PREFIX = 'session:'
 /** 激活拖动时打在 <html> 上的标记：R1 手势据此互斥，CSS 据此给可见反馈。 */
@@ -129,6 +130,17 @@ export class SidebarReorder {
   private timer: number | null = null
   private active: ActiveDrag | null = null
 
+  constructor(private readonly dock?: {
+    accepts(row: HTMLElement): boolean
+    preview(active: boolean, over: boolean): void
+    drop(row: HTMLElement): void
+    capture?(row: HTMLElement): () => void
+  }) {}
+
+  private inDropZone(x: number, y: number): boolean {
+    return x >= window.innerWidth - 48 && x <= window.innerWidth && y >= 0 && y <= window.innerHeight
+  }
+
   /** 开始监听触摸；重复调用无副作用。 */
   attach(): void {
     if (this.attached) return
@@ -161,15 +173,14 @@ export class SidebarReorder {
   private readonly onTouchStart = (event: TouchEvent): void => {
     this.cancelPending()
     this.cancelDrag()
-    if (!document.documentElement.hasAttribute(MOBILE_FORM_ATTR) || event.touches.length !== 1) return
+    if ((!this.dock && !document.documentElement.hasAttribute(MOBILE_FORM_ATTR)) || event.touches.length !== 1) return
     const touch = event.touches[0]
     if (touch === null) return
     const target = event.target
     if (!(target instanceof Element)) return
-    const row = target.closest(SESSION_ROW_SELECTOR)
-    // 只有上游标记为可拖的行才计时：archived 与空白行的 `draggable={false}`
-    // （Rows.tsx:573），上游本就不允许它们参与重排，提前退出避免长按后毫无反应。
-    if (!(row instanceof HTMLElement) || row.draggable !== true) return
+    const row = target.closest(SOURCE_SELECTOR)
+    // 排序仍只接管 draggable 会话行；侧开还允许归档会话与子代理，禁止认领工作区行。
+    if (!(row instanceof HTMLElement) || (!row.matches(SESSION_ROW_SELECTOR) && !this.dock?.accepts(row)) || (row.draggable !== true && !this.dock?.accepts(row))) return
     this.pending = { id: touch.identifier, x: touch.clientX, y: touch.clientY, source: row }
     this.timer = window.setTimeout(this.onLongPress, LONG_PRESS_MS)
   }
@@ -184,7 +195,8 @@ export class SidebarReorder {
       // 插入位置会跟着乱跳。这里拦的是触摸事件本身（上游对合成 drag 事件的 preventDefault
       // 不影响原生滚动手势）。
       event.preventDefault()
-      this.trackOver(touch, active)
+      this.dock?.preview(true, this.inDropZone(touch.clientX, touch.clientY))
+      if (active.source.matches(SESSION_ROW_SELECTOR) && active.source.draggable) this.trackOver(touch, active)
       return
     }
     const pending = this.pending
@@ -212,6 +224,15 @@ export class SidebarReorder {
     if (active === null) return
     const touch = findTouch(event.changedTouches, active.id)
     if (event.touches.length !== 0 || touch === undefined) { this.cancelDrag(); return }
+    event.preventDefault()
+    if (this.dock && this.inDropZone(touch.clientX, touch.clientY)) {
+      const source = active.source
+      const open = source.isConnected ? this.dock.capture?.(source) ?? (() => this.dock?.drop(source)) : undefined
+      this.cancelDrag()
+      open?.()
+      return
+    }
+    if (!active.source.matches(SESSION_ROW_SELECTOR) || !active.source.draggable) { this.cancelDrag(); return }
     // 落点按抬手位置再解析一次：最后一次 touchmove 到抬手之间可能还有位移。
     const finalRow = this.rowAt(touch.clientX, touch.clientY)
     if (finalRow === null) { this.cancelDrag(); return }
@@ -233,8 +254,13 @@ export class SidebarReorder {
   }
 
   /** 列表滚动（含惯性）说明手指不在「按住」语义上：取消尚未激活的长按。 */
-  private readonly onScroll = (): void => {
-    if (this.pending !== null) this.cancelPending()
+  private readonly onScroll = (event: Event): void => {
+    const pending = this.pending
+    if (pending === null) return
+    // Titles marquee horizontally on hover; only scrolling a source ancestor
+    // moves the list under the finger. Descendant scroll is presentation noise.
+    const target = event.target
+    if (!(target instanceof Node) || (target !== pending.source && target.contains(pending.source))) this.cancelPending()
   }
 
   /** 长按达成：进入拖动并派发 dragstart。 */
@@ -242,15 +268,16 @@ export class SidebarReorder {
     const pending = this.pending
     this.pending = null
     this.timer = null
-    if (pending === null || !document.documentElement.hasAttribute(MOBILE_FORM_ATTR)) return
+    if (pending === null || (!this.dock && !document.documentElement.hasAttribute(MOBILE_FORM_ATTR))) return
     // 计时期间行可能已卸载（会话切换 / 列表刷新）：对脱离文档的节点派发事件没有意义。
-    if (!pending.source.isConnected || pending.source.draggable !== true) return
+    if (!pending.source.isConnected || (pending.source.draggable !== true && !this.dock?.accepts(pending.source))) return
     const rowKey = pending.source.getAttribute('data-row-key') ?? ''
     const sourceId = rowKey.startsWith(SESSION_ROW_PREFIX) ? rowKey.slice(SESSION_ROW_PREFIX.length) : ''
     this.active = { id: pending.id, source: pending.source, over: null, half: null }
     document.documentElement.setAttribute(REORDER_ATTR, '')
     pending.source.setAttribute(REORDER_SOURCE_ATTR, '')
-    dispatchDrag(pending.source, 'dragstart', createTransfer(sourceId), pending.y)
+    this.dock?.preview(true, false)
+    if (pending.source.matches(SESSION_ROW_SELECTOR) && pending.source.draggable) dispatchDrag(pending.source, 'dragstart', createTransfer(sourceId), pending.y)
   }
 
   /** 按手指位置解析目标行并派发 dragover；只在目标行或半区变化时派发（上游每次都会 setState）。 */
@@ -297,7 +324,7 @@ export class SidebarReorder {
 
   private ownsRow(target: EventTarget | null): boolean {
     const source = this.active?.source ?? this.pending?.source
-    return source !== undefined && target instanceof Element && target.closest(SESSION_ROW_SELECTOR) === source
+    return source !== undefined && target instanceof Element && target.closest(SOURCE_SELECTOR) === source
   }
 
   /** A source-row drop clears upstream state without persisting a new order.
@@ -311,7 +338,7 @@ export class SidebarReorder {
     const source = active.source.isConnected ? active.source
       : [...document.querySelectorAll<HTMLElement>(SESSION_ROW_SELECTOR)].find(row => row.getAttribute('data-row-key') === key)
     try {
-      if (source !== undefined) {
+      if (source !== undefined && active.source.matches(SESSION_ROW_SELECTOR) && active.source.draggable) {
         dispatchDrag(source, 'drop', createTransfer(''), 0)
         dispatchDrag(source, 'dragend', createTransfer(''), 0)
       }
@@ -325,6 +352,7 @@ export class SidebarReorder {
     const active = this.active
     if (active === null) return
     this.active = null
+    this.dock?.preview(false, false)
     document.documentElement.removeAttribute(REORDER_ATTR)
     active.source.removeAttribute(REORDER_SOURCE_ATTR)
   }
