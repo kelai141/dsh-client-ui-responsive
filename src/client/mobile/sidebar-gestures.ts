@@ -340,6 +340,7 @@ export class MobileSidebarGestures {
     this.start = null
     if (!this.actions.mobileForm() || event.touches.length !== 1
       || editableOrInteractive(event.target) || horizontalScroller(event.target)
+      || (event.target instanceof Element && event.target.closest('[data-dsh-bubble-nav]') !== null)
       // 互斥：sidebar-reorder 正在做长按拖动重排时不认领本次手势，重排拖动期间抽屉绝不能开合。
       || document.documentElement.hasAttribute(REORDER_ATTR)
       || document.querySelector('[role="dialog"][aria-modal="true"]:not([data-dsh-settings-dialog])') !== null) return

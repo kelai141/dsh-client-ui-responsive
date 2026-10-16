@@ -37,6 +37,16 @@ beforeEach(() => {
 afterEach(() => { owner.detach(); delete window.androidBridge; vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe('native browser stage ownership lease (#341)', () => {
+  it('hides for bubble navigation and its closing animation, then restores the same native page', () => {
+    stage(); owner.mount('stage')
+    const bubbles = document.createElement('nav')
+    bubbles.setAttribute('data-dsh-sidebar-bubbles', 'open'); document.body.append(bubbles); mutate()
+    expect(latest()).toMatchObject({ tabId: 'native-a', uiTabId: 'ui-a', visible: false })
+    bubbles.setAttribute('data-dsh-sidebar-bubbles', 'closing'); mutate()
+    expect(latest().visible).toBe(false)
+    bubbles.setAttribute('data-dsh-sidebar-bubbles', 'closed'); mutate()
+    expect(latest()).toMatchObject({ tabId: 'native-a', uiTabId: 'ui-a', visible: true })
+  })
   it('renews unchanged visible bounds beyond the native 4000ms TTL without reopening a page', () => {
     stage(); owner.mount('stage'); vi.advanceTimersByTime(6000)
     expect(BROWSER_STAGE_LEASE_MS).toBeLessThan(4000)

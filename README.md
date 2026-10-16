@@ -32,6 +32,16 @@ and transfer metadata remains compatible with global file-drop listeners.
 | Shell surfaces | Developer options section, Android general settings rows, export-result dialog, theme bridge, keyboard boundary |
 | Retired with 0.1.5 | The frame fork, the duplicated theme presenter, the injected 「上传图片」/「导出调试日志」 menu items, the image-pick bridge, and the CSS that hid upstream's own attachment buttons |
 
+## Right-panel bubble tabs
+
+Below 768 CSS pixels, a current-title header and top-right disclosure replace the persistent horizontal strip. Pills derive their order, live title, status and close eligibility from the native tabs. Selection collapses the list. Swipe vertically to scroll; hold for 400ms to reorder within the original pane. Alt plus Up/Down reorders; arrows/Home/End move focus; Delete closes; Escape and Android Back dismiss navigation first.
+
+Wide windows retain native horizontal tabs and the parallel main/secondary layout. Resizing replaces navigation chrome only and leaves tab content under its existing owner. The list follows panel, safe-area and visual-viewport bounds. Native BrowserHost is hidden during the disclosure and exit animation, then presents the same retained page.
+
+Reordering requires the mobile patch `sidebar-bubble-reorder-B1`, which adds `sidebarRight.reorderIn(session, tab, before)` over the existing placement/focus actions. It retains the active tab and rejects stale Sessions, floating pages and cross-pane targets. Ship the engine adapter and plugin together; runtime hot-push must update both.
+
+Tests: [bubble interaction](tests/sidebar-bubbles.spec.ts), [native browser presentation](tests/native-browser-presentation.spec.ts). The APK mirror supplies the device driver `scripts/verify-sidebar-bubbles.mjs`.
+
 ## Install and mount
 
 **1. Package** into the web profile's `node_modules` (see dsh-shell-termux for the pattern).

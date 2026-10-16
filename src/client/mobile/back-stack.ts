@@ -48,6 +48,7 @@ export type BackLayerKind =
   | 'dialog'
   | 'trajectory-details'
   | 'right-fullscreen'
+  | 'sidebar-bubbles'
   | 'menu'
   | 'menu-drill'
   | 'attachment-menu'
@@ -133,6 +134,7 @@ const OBSERVED_ATTRIBUTES = [
   'data-dsh-android-model-menu',
   'data-plugin-panel',
   'data-dsh-main-panel-back',
+  'data-dsh-sidebar-bubbles',
 ]
 
 declare global {
@@ -432,6 +434,9 @@ export class BackStackSignal {
     if (trajectory !== null) found.push(trajectory)
     const fullscreen = this.detectRightFullscreen()
     if (fullscreen !== null) found.push(fullscreen)
+    const bubbles = document.querySelector('[data-dsh-sidebar-bubbles="open"]')
+    const bubbleToggle = bubbles?.parentElement?.querySelector<HTMLElement>('[data-dsh-sidebar-bubbles-toggle]')
+    if (bubbles && bubbleToggle) found.push({ id: 'sidebar-bubbles', kind: 'sidebar-bubbles', close: () => { bubbleToggle.click(); return true } })
     const menu = this.detectMenu()
     if (menu !== null) found.push(menu)
     const drill = this.detectMenuDrill()

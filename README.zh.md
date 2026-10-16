@@ -25,6 +25,16 @@ ui-sidebar-right 都挂在它上面——继续 fork 就得每个版本复刻一
 | 壳侧界面 | 开发者选项页、Android 显示设置行、导出结果弹窗、主题桥、键盘边界 |
 | 0.1.5 一并退役 | 框架 fork、重复的 ThemePresenter、注入的「上传图片」「导出调试日志」菜单项、图片选择桥、以及遮蔽上游附件按钮的 CSS |
 
+## 右侧面板气泡标签
+
+可用窗口小于 768 CSS 像素时，右侧面板以当前标题和右上角三点按钮替代常驻横向标签。展开后的胶囊标签沿用原标签的顺序、名称、图标、状态和关闭入口。点击标签后自动收起；直接上下滑动滚动列表，长按 400ms 后拖动在原分栏内排序。Alt 加上下方向键也能排序，方向键/Home/End 移动焦点，Delete 关闭标签，Escape 或 Android 返回先收起气泡。
+
+宽窗口保留上游横向标签和主副面板并排能力。跨越断点只撤换导航节点，不移动或卸载原标签内容。列表高度受面板、安全区和可视视口限制；原生 BrowserHost 在气泡展开及收起动画期间仅隐藏显示层，结束后恢复同一页面。
+
+排序依赖移动端补丁链 `sidebar-bubble-reorder-B1` 提供的 `sidebarRight.reorderIn(session, tab, before)`。它复用原 `placeTab`/`focusTab` 动作，保留活动标签，拒绝失效会话、浮动页和跨分栏目标。补丁随协调仓及 APK 镜像一起交付；开发热推须同时更新它和本插件。
+
+验证入口：[气泡交互测试](tests/sidebar-bubbles.spec.ts)、[原生浏览器显示层测试](tests/native-browser-presentation.spec.ts)；设备端使用 APK 仓的 `scripts/verify-sidebar-bubbles.mjs`。
+
 ## 安装与挂载
 
 **1. 打包**进 web profile 的 `node_modules`（模式见 dsh-shell-termux）。
