@@ -66,7 +66,7 @@ import { TopBarFold } from './mobile/top-bar-fold.ts'
 import { TOP_BAR_FOLD_CSS } from './mobile/top-bar-fold.css.ts'
 import { NewSessionDrawer } from './mobile/new-session-drawer.ts'
 import { SidebarSessionDismiss } from './mobile/sidebar-session-dismiss.ts'
-import { registerConversationDock, ConversationDropZone, conversationAddress, CONVERSATION_DOCK_CSS } from './mobile/conversation-dock.tsx'
+import { registerConversationDock, ConversationDropZone, conversationAddress, resolveDockSubagent, CONVERSATION_DOCK_CSS } from './mobile/conversation-dock.tsx'
 import { SidebarReorder } from './mobile/sidebar-reorder.ts'
 import { SIDEBAR_REORDER_CSS } from './mobile/sidebar-reorder.css.ts'
 import { EXTERNAL_OPEN_ID, externalOpenDefinition } from './mobile/external-open-paths.ts'
@@ -692,7 +692,7 @@ export function apply(ctx: ClientContext): void {
       scope.sidebarRight.openResource(conversationAddress(id), {
         kind: 'conversation', preferNewPane: window.matchMedia('(orientation: landscape)').matches && scope.sidebarRight.active()?.kind !== 'guide',
       })
-    }, () => scope.sidebarRight.mounted.getSnapshot())
+    }, () => scope.sidebarRight.mounted.getSnapshot(), row => resolveDockSubagent(row, ctx.sessions, scope.sidebarRight.mounted.getSnapshot()))
     const reorder = new SidebarReorder(zone)
     reorder.attach()
     return () => { reorder.detach(); zone.detach() }

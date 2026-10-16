@@ -9,6 +9,8 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 const ID = '@dsh-android/conversation-dock'
 const PREFIX = 'dsh-resource://conversation/session/'
 
+export type DockSessionTarget = Parameters<Context['sessions']['retain']>[0]
+
 interface ChatResource { readonly reference: SessionReference }
 
 declare module '@deepseek-ai/dsh-api-session-controller/client' {
@@ -21,13 +23,27 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export function conversationAddress(id: string): string { return PREFIX + encodeURIComponent(id) }
+export function conversationAddress(target: DockSessionTarget): string {
+  if (typeof target === 'string') return PREFIX + encodeURIComponent(target)
+  return PREFIX + encodeURIComponent(target.childSessionId)
+    + '?parent=' + encodeURIComponent(target.parentSessionId) + '&mode=' + target.mode
+}
 export function conversationId(address: string): SessionId | undefined {
   if (!address.startsWith(PREFIX)) return undefined
   try {
-    const id = decodeURIComponent(address.slice(PREFIX.length))
+    const id = decodeURIComponent(address.slice(PREFIX.length).split('?')[0] ?? '')
     return id ? id as SessionId : undefined
   } catch { return undefined }
+}
+export function conversationTarget(address: string): DockSessionTarget | undefined {
+  const id = conversationId(address)
+  if (id === undefined) return undefined
+  const query = address.indexOf('?')
+  if (query < 0) return id
+  const params = new URLSearchParams(address.slice(query + 1))
+  const parent = params.get('parent'), mode = params.get('mode')
+  if (!parent || (mode !== 'continuable' && mode !== 'one-shot' && mode !== 'unknown')) return undefined
+  return { parentSessionId: parent as SessionId, childSessionId: id, mode }
 }
 function ChatViews(props: ConversationViewsProps) {
   return props.renderSlot('conversation.session', { view: 'chat' })
@@ -56,10 +72,10 @@ export function registerConversationDock(ctx: Context): void {
   const provider: ResourceProvider<'conversation'> = {
     protocol: 'conversation',
     async *open(address, { signal }) {
-      const id = conversationId(address)
-      if (id === undefined) throw new Error('Invalid conversation address')
+      const target = conversationTarget(address)
+      if (target === undefined) throw new Error('Invalid conversation address')
       if (signal.aborted) return
-      const reference = ctx.sessions.retain(id, { source: 'conversationDock', signal })
+      const reference = ctx.sessions.retain(target, { source: 'conversationDock', signal })
       try {
         yield { ok: true, value: { reference } }
         if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }))
@@ -69,10 +85,16 @@ export function registerConversationDock(ctx: Context): void {
   ctx.effect(() => ctx.resources.register(provider), 'ui-responsive: conversation resource')
   ctx.effect(() => ctx.sidebarRightTabs.register({
     id: ID, kind: 'conversation', patterns: [PREFIX + '**'], priority: 'extension',
-    canOpen: address => conversationId(address) !== undefined,
+    canOpen: address => conversationTarget(address) !== undefined,
     title: address => {
+      const target = conversationTarget(address)
+      const snapshot = ctx.sessions.list.getSnapshot()
+      if (target !== undefined && typeof target !== 'string') {
+        const label = snapshot.projectionsBySession[target.parentSessionId]?.values.subagentCatalog?.find(entry => entry.id === target.childSessionId)?.label
+        if (label) return label
+      }
       const id = conversationId(address)
-      return (id === undefined ? undefined : ctx.sessions.list.getSnapshot().byId[id]?.title) ?? '对话'
+      return (id === undefined ? undefined : snapshot.byId[id]?.title) ?? '对话'
     },
   }), 'ui-responsive: conversation tab')
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
@@ -84,7 +106,46 @@ export function registerConversationDock(ctx: Context): void {
   }, ChatContent)), 'ui-responsive: embedded conversation')
 }
 
-/** The existing subagent row's own action holds its exact direct-parent route. */
+/** Resolve the visible catalog's complete preorder against authoritative projections.
+ * Validate every label, depth and row count; never guess identity from a title.
+ * No React fibers, global service monkeypatches, or main-session navigation. */
+export function resolveDockSubagent(
+  row: HTMLElement, sessions: Pick<Context['sessions'], 'list' | 'subagentAddress'>, current: SessionId | undefined,
+): DockSessionTarget | undefined {
+  if (current === undefined || row.hasAttribute('data-row-key')) return undefined
+  const tree = row.closest('[role="tree"]')
+  if (!tree) return undefined
+  const rows = [...tree.querySelectorAll<HTMLElement>('[role="treeitem"]')]
+  const snapshot = sessions.list.getSnapshot()
+  const candidates: SessionId[] = []
+  for (let id: SessionId | undefined = current; id !== undefined && !candidates.includes(id); id = sessions.subagentAddress(id)?.parentSessionId) candidates.push(id)
+  let resolved: DockSessionTarget | undefined
+  for (const root of candidates) {
+    let cursor = 0, valid = true
+    let match: DockSessionTarget | undefined
+    const walk = (parent: SessionId, depth: number): void => {
+      if (depth > 32) { valid = false; return }
+      const entries = snapshot.projectionsBySession[parent]?.values.subagentCatalog ?? []
+      for (const entry of entries) {
+        const node = rows[cursor++]
+        if (!node || Number(node.getAttribute('aria-level')) !== depth
+          || node.querySelector('[class*="_label"]')?.textContent !== (entry.label ?? entry.id)
+          || (node.getAttribute('aria-current') === 'true' && entry.id !== current)) { valid = false; return }
+        if (node === row) match = { parentSessionId: parent, childSessionId: entry.id, mode: entry.mode }
+        if (node.getAttribute('aria-expanded') === 'true') walk(entry.id, depth + 1)
+        if (!valid) return
+      }
+    }
+    walk(root, 1)
+    if (valid && cursor === rows.length && match !== undefined) {
+      if (resolved !== undefined && JSON.stringify(resolved) !== JSON.stringify(match)) return undefined
+      resolved = match
+    }
+  }
+  return resolved
+}
+
+/** Kept as a fallback for hosts that have not supplied catalog resolution. */
 export function subagentAside(row: HTMLElement): HTMLButtonElement | null {
   if (!row.matches('[role="treeitem"]')) return null
   return row.querySelector<HTMLButtonElement>('button[class*="sidebarButton"]')
@@ -93,8 +154,16 @@ export function subagentAside(row: HTMLElement): HTMLButtonElement | null {
 export class ConversationDropZone {
   private zone: HTMLDivElement | undefined
   private readonly leaving = new Map<HTMLDivElement, number>()
-  constructor(private readonly open: (id: string) => void, private readonly current: () => string | undefined = () => undefined) {}
-  accepts = (row: HTMLElement): boolean => row.matches('[data-row-key^="session:"]') || subagentAside(row) !== null || (row.matches('[role=treeitem][aria-current=true]') && this.current() !== undefined)
+  constructor(
+    private readonly open: (target: DockSessionTarget) => void,
+    private readonly current: () => string | undefined = () => undefined,
+    private readonly resolveChild?: (row: HTMLElement) => DockSessionTarget | undefined,
+  ) {}
+  accepts = (row: HTMLElement): boolean => {
+    if (row.matches('[data-row-key^="session:"]')) return true
+    if (this.resolveChild) return this.resolveChild(row) !== undefined
+    return subagentAside(row) !== null || (row.matches('[role=treeitem][aria-current=true]') && this.current() !== undefined)
+  }
   preview = (active: boolean, over: boolean): void => {
     if (!active) {
       const old = this.zone
@@ -111,11 +180,11 @@ export class ConversationDropZone {
       this.zone = document.createElement('div')
       this.zone.className = 'dsh-conversation-drop-zone'
       this.zone.setAttribute('role', 'status')
-      this.zone.textContent = '拖入侧开'
+      this.zone.textContent = '松开于侧边栏打开'
       document.body.append(this.zone)
     }
     this.zone.toggleAttribute('data-over', over)
-    const label = over ? '松开侧开' : '拖入侧开'
+    const label = '松开于侧边栏打开'
     if (this.zone.textContent !== label) this.zone.textContent = label
   }
   detach(): void {
@@ -134,15 +203,22 @@ export class ConversationDropZone {
   capture = (row: HTMLElement): (() => void) => {
     const key = row.getAttribute('data-row-key')
     const id = key?.startsWith('session:') ? key.slice('session:'.length) : undefined
-    if (id) return () => this.open(id)
+    if (id) return () => this.open(id as SessionId)
     else {
+      if (this.resolveChild) {
+        const target = this.resolveChild(row)
+        return () => {
+          row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+          if (target !== undefined) this.open(target)
+        }
+      }
       const button = subagentAside(row)
       if (button) return () => button.click()
       else if (row.matches('[aria-current=true]')) {
         const current = this.current()
         return () => {
-          if (current) this.open(current)
-          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+          if (current) this.open(current as SessionId)
+          row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
         }
       }
     }
@@ -152,26 +228,34 @@ export class ConversationDropZone {
 export const CONVERSATION_DOCK_CSS = `
 .dsh-conversation-drop-zone {
   position: fixed; z-index: 2147483000; inset: max(12px, env(safe-area-inset-top)) 0 max(12px, env(safe-area-inset-bottom)) auto;
-  width: 48px; box-sizing: border-box; border: 1px solid rgba(135,185,255,.5);
-  border-radius: 8px 0 0 8px; background: rgba(103,160,255,.14);
+  width: 48px; box-sizing: border-box; border: 0;
+  border-radius: 0; background: linear-gradient(to left, rgba(103,160,255,.2), rgba(103,160,255,.025));
   -webkit-backdrop-filter: blur(18px) saturate(135%); backdrop-filter: blur(18px) saturate(135%);
-  box-shadow: -8px 0 28px rgba(94,158,255,.18), inset 1px 0 12px rgba(180,215,255,.12);
-  color: var(--dsw-alias-text-primary, #b8d5ff); text-shadow: 0 0 10px rgba(117,167,255,.3); writing-mode: vertical-rl;
+  box-shadow: -10px 0 30px rgba(94,158,255,.12);
+  color: #fff; text-shadow: 0 0 10px rgba(117,167,255,.3); writing-mode: vertical-rl;
   display: flex; align-items: center; justify-content: center; font-size: 12px;
   pointer-events: none; animation: dsh-dock-arrive 180ms ease-out both;
   transition: width 160ms ease, background 160ms ease, box-shadow 160ms ease, opacity 160ms ease, transform 160ms ease;
 }
-.dsh-conversation-drop-zone[data-over] { width: 56px; background: rgba(103,160,255,.26);
-  box-shadow: -10px 0 38px rgba(94,158,255,.35), inset 1px 0 16px rgba(205,228,255,.2); }
+.dsh-conversation-drop-zone[data-over] { width: 56px; background: linear-gradient(to left, rgba(103,160,255,.32), rgba(103,160,255,.035));
+  box-shadow: -12px 0 38px rgba(94,158,255,.2); }
 .dsh-conversation-drop-zone[data-leaving] { animation: none; opacity: 0; transform: translateX(14px); }
 @keyframes dsh-dock-arrive { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: translateX(0); } }
+/* Touch owns long-press; native HTML drag and text selection must not cancel it. */
+@media (pointer: coarse) {
+  [data-row-key^='session:'], [data-row-key^='session:'] *,
+  [role='treeitem']:not([data-row-key]), [role='treeitem']:not([data-row-key]) * {
+    -webkit-user-select: none; user-select: none;
+    -webkit-user-drag: none; -webkit-touch-callout: none;
+  }
+}
 /* Frost lives only in the edge, never on the reading or composing surface. */
 [data-sidebar-right-panel][data-sidebar-right-open]::after {
   content: ''; position: absolute; inset: 0 auto 0 0; width: 6px; z-index: 45;
-  pointer-events: none; border-left: 1px solid rgba(117,167,255,.26);
-  background: rgba(117,167,255,.045);
+  pointer-events: none; border: 0;
+  background: linear-gradient(to left, rgba(117,167,255,.08), transparent);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-  box-shadow: -5px 0 20px rgba(94,158,255,.12), inset 1px 0 7px rgba(176,212,255,.1);
+  box-shadow: -5px 0 20px rgba(94,158,255,.1);
 }
 [data-sidebar-right-open] [data-dockkit-divider]::before {
   background: rgba(117,167,255,.24); box-shadow: 0 0 12px rgba(94,158,255,.16);
