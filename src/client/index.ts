@@ -685,18 +685,18 @@ export function apply(ctx: ClientContext): void {
 
   // 0.14.7（Spec §2.2）侧边栏会话行长按拖动重排。与上面的 MobileSidebarGestures 靠 DOM 属性
   // 互斥（不靠注册顺序）：重排激活期间在 <html> 打标记，R1 手势据此拒绝认领 / 中途放弃。
-  ctx.effect(() => {
+  ctx.inject(['sidebarRight'], scope => { scope.effect(() => {
     const zone = new ConversationDropZone(id => {
-      ctx.sidebarRight.openResource(conversationAddress(id), {
-        kind: 'conversation', preferNewPane: window.matchMedia('(orientation: landscape)').matches,
-      })
       const frame = document.querySelector('[data-dsh-frame]')
-      if (document.documentElement.hasAttribute('data-dsh-mobile-form') && frame && !frame.hasAttribute('data-sidebar-collapsed')) ctx.layout.toggleSidebar()
-    }, () => ctx.sidebarRight.mounted.getSnapshot())
+      if (window.innerWidth < 1100 && frame && !frame.hasAttribute('data-sidebar-collapsed')) ctx.layout.toggleSidebar()
+      scope.sidebarRight.openResource(conversationAddress(id), {
+        kind: 'conversation', preferNewPane: window.matchMedia('(orientation: landscape)').matches && scope.sidebarRight.active()?.kind !== 'guide',
+      })
+    }, () => scope.sidebarRight.mounted.getSnapshot())
     const reorder = new SidebarReorder(zone)
     reorder.attach()
     return () => { reorder.detach(); zone.detach() }
-  }, 'ui-responsive: sidebar long-press reorder')
+  }, 'ui-responsive: sidebar long-press reorder') })
 
   // FX1-C (2026-09-27, user): the sidebar 插件 row switches the centre column to
   // upstream plugin-manager main panel, which is neither a dialog nor a sidebar layer -

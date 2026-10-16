@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest'
 import { SidebarReorder, REORDER_ATTR } from '../src/client/mobile/sidebar-reorder.ts'
-import { ConversationDropZone, conversationAddress, conversationId } from '../src/client/mobile/conversation-dock.tsx'
+import { ConversationDropZone, conversationAddress, conversationId, registerConversationDock } from '../src/client/mobile/conversation-dock.tsx'
 
 function touch(type: string, target: HTMLElement, x: number, y = 100, multiple = false) {
   const e = new Event(type, { bubbles: true, cancelable: true })
@@ -92,5 +92,44 @@ describe('conversation docking', () => {
     expect(open).not.toHaveBeenCalled()
     expect(document.documentElement.hasAttribute(REORDER_ATTR)).toBe(false)
     expect(document.querySelector('.dsh-conversation-drop-zone:not([data-leaving])')).toBeNull()
+  })
+})
+
+
+describe('conversation resource lifetime', () => {
+  function provider() {
+    let resource: any
+    const releases: ReturnType<typeof vi.fn>[] = []
+    const retain = vi.fn(() => { const release = vi.fn(); releases.push(release); return { release } })
+    const context = {
+      effect: (mount: () => unknown) => mount(),
+      resources: { register: (value: unknown) => { resource = value } },
+      sessions: { retain },
+      sidebarRightTabs: { register: () => {} },
+      slots: { inject: () => {} },
+    }
+    registerConversationDock(context as any)
+    return { resource, retain, releases }
+  }
+  it('does not acquire an already cancelled occurrence', async () => {
+    const { resource, retain } = provider()
+    const controller = new AbortController(); controller.abort()
+    const stream = resource.open(conversationAddress('a'), { signal: controller.signal })
+    expect((await stream.next()).done).toBe(true)
+    expect(retain).not.toHaveBeenCalled()
+  })
+  it('releases each retained generation once and leaves other occurrences alive', async () => {
+    const { resource, retain, releases } = provider()
+    const first = new AbortController(), second = new AbortController()
+    const a = resource.open(conversationAddress('a'), { signal: first.signal })
+    const b = resource.open(conversationAddress('b'), { signal: second.signal })
+    expect((await a.next()).done).toBe(false)
+    expect((await b.next()).done).toBe(false)
+    expect(retain).toHaveBeenCalledTimes(2)
+    first.abort(); expect((await a.next()).done).toBe(true)
+    expect(releases[0]).toHaveBeenCalledTimes(1)
+    expect(releases[1]).not.toHaveBeenCalled()
+    second.abort(); expect((await b.next()).done).toBe(true)
+    expect(releases[1]).toHaveBeenCalledTimes(1)
   })
 })
