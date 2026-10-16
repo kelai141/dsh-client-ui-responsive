@@ -74,6 +74,9 @@ import { ExternalOpenTab } from './mobile/external-open.tsx'
 import { SettingsDocumentAction } from './mobile/settings-document.ts'
 import { ReferenceMenuEnhancer, REFERENCE_BAR_CSS } from './mobile/reference-menu.ts'
 import { BackStackSignal } from './mobile/back-stack.ts'
+import { SidebarBubbles, type BubbleReorderFace } from './mobile/sidebar-bubbles.ts'
+import { SIDEBAR_BUBBLES_CSS } from './mobile/sidebar-bubbles.css.ts'
+import { zh as bubblesZh, en as bubblesEn } from './mobile/sidebar-bubbles.locales.ts'
 import { MAIN_PANEL_BACK_CSS } from './mobile/main-panel-back.css.ts'
 import { MainPanelBackMount } from './mobile/main-panel-back.ts'
 import { PanelNavDrawer } from './mobile/panel-nav-drawer.ts'
@@ -466,6 +469,26 @@ export function apply(ctx: ClientContext): void {
     marker.attach()
     return () => { marker.detach() }
   }, 'ui-responsive: session id marker for tool-row file links')
+
+  ctx.inject(['locale', 'sidebarRight'], scope => {
+    const namespace = 'androidSidebarBubbles'
+    const t = scope.locale.bind(namespace)
+    scope.effect(() => scope.locale.register(namespace, { zh: bubblesZh, en: bubblesEn }), 'ui-responsive: bubble navigation copy')
+    scope.effect(() => injectStyle('sidebar-bubbles', SIDEBAR_BUBBLES_CSS), 'ui-responsive: bubble navigation styles')
+    scope.effect(() => {
+      const sidebar = scope.sidebarRight as typeof scope.sidebarRight & BubbleReorderFace
+      const bubbles = new SidebarBubbles({
+        session: () => sidebar.mounted.getSnapshot(),
+        tabs: session => sidebar.tabsIn(session),
+        reorder: (session, tab, before) => sidebar.reorderIn(session, tab, before),
+        t,
+      })
+      bubbles.attach()
+      const unsubscribe = sidebar.mounted.subscribe(bubbles.refresh)
+      const unlocale = scope.on('locale/change', bubbles.refresh)
+      return () => { unsubscribe(); unlocale(); bubbles.detach() }
+    }, 'ui-responsive: narrow right-panel bubble navigation')
+  })
 
   // Browser is an extension-band replacement; SidebarRight still owns guide, tabs and docking.
   ctx.inject(['locale', 'sidebarRight', 'sidebarRightTabs'], (scope) => {

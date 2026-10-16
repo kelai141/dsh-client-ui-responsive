@@ -48,7 +48,8 @@ export class NativeBrowserPresentation implements BrowserPresentation {
         if (/hidden|clip|scroll|auto/.test(style.overflowY)) { top = Math.max(top, clip.top); bottom = Math.min(bottom, clip.bottom) }
       }
       // Android native views are above DOM portals; hide while app menus/dialogs own input.
-      const overlay = Array.from(document.querySelectorAll<HTMLElement>('[role="menu"], [role="dialog"], [aria-modal="true"], [role="listbox"]'))
+      const bubbles = document.querySelector('[data-dsh-sidebar-bubbles="open"], [data-dsh-sidebar-bubbles="closing"]') !== null
+      const overlay = bubbles || Array.from(document.querySelectorAll<HTMLElement>('[role="menu"], [role="dialog"], [aria-modal="true"], [role="listbox"]'))
         .some(element => {
           const bounds = element.getBoundingClientRect()
           const style = window.getComputedStyle(element)
@@ -95,7 +96,7 @@ export class NativeBrowserPresentation implements BrowserPresentation {
     })
     if (stage !== null) resize?.observe(stage)
     mutation?.observe(document.documentElement, { childList: true, subtree: true, attributes: true,
-      attributeFilter: ['style', 'class', 'hidden', 'open', 'aria-hidden', 'data-sidebar-right-open', 'data-dockkit-pointer'] })
+      attributeFilter: ['style', 'class', 'hidden', 'open', 'aria-hidden', 'data-sidebar-right-open', 'data-dockkit-pointer', 'data-dsh-sidebar-bubbles'] })
     window.addEventListener('resize', schedule)
     window.addEventListener('scroll', schedule, true)
     window.visualViewport?.addEventListener('resize', schedule)

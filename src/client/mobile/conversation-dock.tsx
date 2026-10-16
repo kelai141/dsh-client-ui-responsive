@@ -269,7 +269,7 @@ export const CONVERSATION_DOCK_CSS = `
 html[data-dsh-sidebar-reorder] [role=treeitem] { user-select: none; -webkit-user-select: none; }
 /* Portrait preserves the dock tree and native tab actions. Only the active
    pane body occupies the full second row; both groups of tabs remain reachable. */
-@media (orientation: portrait) {
+@media (max-width: 767px) {
   [data-sidebar-right-panel] [data-dockkit-split] {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
     grid-template-rows: auto minmax(0, 1fr);
