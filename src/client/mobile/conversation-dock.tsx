@@ -227,18 +227,23 @@ export class ConversationDropZone {
 }
 export const CONVERSATION_DOCK_CSS = `
 .dsh-conversation-drop-zone {
-  position: fixed; z-index: 2147483000; inset: max(12px, env(safe-area-inset-top)) 0 max(12px, env(safe-area-inset-bottom)) auto;
-  width: 48px; box-sizing: border-box; border: 0;
-  border-radius: 0; background: linear-gradient(to left, rgba(103,160,255,.2), rgba(103,160,255,.025));
-  -webkit-backdrop-filter: blur(18px) saturate(135%); backdrop-filter: blur(18px) saturate(135%);
-  box-shadow: -10px 0 30px rgba(94,158,255,.12);
-  color: #fff; text-shadow: 0 0 10px rgba(117,167,255,.3); writing-mode: vertical-rl;
+  position: fixed; z-index: 2147483000; inset: 0 0 0 auto;
+  width: 48px; box-sizing: border-box; border: 0; isolation: isolate;
+  color: #fff; text-shadow: 0 1px 5px rgba(15,30,60,.28); writing-mode: vertical-rl;
   display: flex; align-items: center; justify-content: center; font-size: 12px;
   pointer-events: none; animation: dsh-dock-arrive 180ms ease-out both;
-  transition: width 160ms ease, background 160ms ease, box-shadow 160ms ease, opacity 160ms ease, transform 160ms ease;
+  transition: width 160ms ease, opacity 160ms ease, transform 160ms ease;
 }
-.dsh-conversation-drop-zone[data-over] { width: 56px; background: linear-gradient(to left, rgba(103,160,255,.32), rgba(103,160,255,.035));
-  box-shadow: -12px 0 38px rgba(94,158,255,.2); }
+.dsh-conversation-drop-zone::before {
+  content: ''; position: absolute; inset: 0 0 0 -48px; z-index: -1;
+  background: linear-gradient(to left, rgba(108,164,255,.18), rgba(108,164,255,.07) 42%, transparent);
+  -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  -webkit-mask-image: linear-gradient(to left, #000, transparent);
+  mask-image: linear-gradient(to left, #000, transparent);
+  opacity: .65; transition: opacity 160ms ease;
+}
+.dsh-conversation-drop-zone[data-over] { width: 56px; }
+.dsh-conversation-drop-zone[data-over]::before { opacity: 1; }
 .dsh-conversation-drop-zone[data-leaving] { animation: none; opacity: 0; transform: translateX(14px); }
 @keyframes dsh-dock-arrive { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: translateX(0); } }
 /* Touch owns long-press; native HTML drag and text selection must not cancel it. */
@@ -251,14 +256,15 @@ export const CONVERSATION_DOCK_CSS = `
 }
 /* Frost lives only in the edge, never on the reading or composing surface. */
 [data-sidebar-right-panel][data-sidebar-right-open]::after {
-  content: ''; position: absolute; inset: 0 auto 0 0; width: 6px; z-index: 45;
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 12px; z-index: 45;
   pointer-events: none; border: 0;
-  background: linear-gradient(to left, rgba(117,167,255,.08), transparent);
-  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-  box-shadow: -5px 0 20px rgba(94,158,255,.1);
+  background: linear-gradient(to right, rgba(117,167,255,.045), transparent);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  -webkit-mask-image: linear-gradient(to right, #000, transparent);
+  mask-image: linear-gradient(to right, #000, transparent);
 }
 [data-sidebar-right-open] [data-dockkit-divider]::before {
-  background: rgba(117,167,255,.24); box-shadow: 0 0 12px rgba(94,158,255,.16);
+  background: rgba(117,167,255,.12); box-shadow: 0 0 8px rgba(94,158,255,.06);
 }
 html[data-dsh-sidebar-reorder] [role=treeitem] { user-select: none; -webkit-user-select: none; }
 /* Portrait preserves the dock tree and native tab actions. Only the active
@@ -277,5 +283,5 @@ html[data-dsh-sidebar-reorder] [role=treeitem] { user-select: none; -webkit-user
   [data-sidebar-right-panel] [data-dockkit-split] section:not([data-dockkit-pane-active]) > [class*='tabHostBody'],
   [data-sidebar-right-panel] [data-dockkit-split] > [data-dockkit-divider] { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { .dsh-conversation-drop-zone { transition: none; animation: none; } }
+@media (prefers-reduced-motion: reduce) { .dsh-conversation-drop-zone, .dsh-conversation-drop-zone::before { transition: none; animation: none; } }
 `

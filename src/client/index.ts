@@ -686,16 +686,28 @@ export function apply(ctx: ClientContext): void {
   // 0.14.7（Spec §2.2）侧边栏会话行长按拖动重排。与上面的 MobileSidebarGestures 靠 DOM 属性
   // 互斥（不靠注册顺序）：重排激活期间在 <html> 打标记，R1 手势据此拒绝认领 / 中途放弃。
   ctx.inject(['sidebarRight'], scope => { scope.effect(() => {
+    let pendingFrame = 0
     const zone = new ConversationDropZone(id => {
+      window.cancelAnimationFrame(pendingFrame)
+      const owner = scope.sidebarRight.mounted.getSnapshot()
+      const open = () => {
+        pendingFrame = 0
+        if (owner === undefined || scope.sidebarRight.mounted.getSnapshot() !== owner) return
+        scope.sidebarRight.openResource(conversationAddress(id), {
+          kind: 'conversation', preferNewPane: window.matchMedia('(orientation: landscape)').matches && scope.sidebarRight.active()?.kind !== 'guide',
+        })
+      }
       const frame = document.querySelector('[data-dsh-frame]')
-      if (window.innerWidth < 1100 && frame && !frame.hasAttribute('data-sidebar-collapsed')) ctx.layout.toggleSidebar()
-      scope.sidebarRight.openResource(conversationAddress(id), {
-        kind: 'conversation', preferNewPane: window.matchMedia('(orientation: landscape)').matches && scope.sidebarRight.active()?.kind !== 'guide',
-      })
+      if (window.innerWidth < 1100 && frame && !frame.hasAttribute('data-sidebar-collapsed')) {
+        ctx.layout.toggleSidebar()
+        // Let React commit the drawer width, then let native ResizeObserver report
+        // split capacity. Cancel on disposal/replacement and reject changed owners.
+        pendingFrame = window.requestAnimationFrame(() => { pendingFrame = window.requestAnimationFrame(open) })
+      } else open()
     }, () => scope.sidebarRight.mounted.getSnapshot(), row => resolveDockSubagent(row, ctx.sessions, scope.sidebarRight.mounted.getSnapshot()))
     const reorder = new SidebarReorder(zone)
     reorder.attach()
-    return () => { reorder.detach(); zone.detach() }
+    return () => { window.cancelAnimationFrame(pendingFrame); reorder.detach(); zone.detach() }
   }, 'ui-responsive: sidebar long-press reorder') })
 
   // FX1-C (2026-09-27, user): the sidebar 插件 row switches the centre column to
