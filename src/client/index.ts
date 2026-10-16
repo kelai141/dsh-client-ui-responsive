@@ -318,6 +318,15 @@ export function apply(ctx: ClientContext): void {
     label: () => '模型能力',
   }, ModelCapabilitySection))
 
+  // Linux 环境（实验性内部插件）**不由本文件注册**：该分区的唯一注册方是 vendored 的
+  // dsh-linux-bootstrap 客户端插件（plugins/dsh-linux-bootstrap 的 client 条目，id 同为
+  // linux-environment、label 同为「Linux环境」）。dsh-client-ui-slots 对 list 槽的重复 id 是
+  // **抛错**而非叠加，所以这里必须留空——两处都注册会在插件被启用时当场抛错。0.15.0 撤回
+  // 0.14.x 的壳侧同名分区（存在 ≠ 启用，未启用时本就没有任何入口）。
+  //
+  // 插件在内置（hard）插件目录里但默认不启用：它的 Cordis 客户端条目只在被显式启用、拿到
+  // linuxBootstrap 服务后才注册本分区，因此未启用时设置页不出现 Linux 入口。
+
   // Android general-settings rows (issue #59): immersive status-bar toggle.
   // 0.13.3 (D6): the font-size slider retired — upstream ui-theme fontSize
   // (12–17px) covers it natively. The setImmersiveMode shell bridge persists,
@@ -686,7 +695,7 @@ export function apply(ctx: ClientContext): void {
     }, () => ctx.sidebarRight.mounted.getSnapshot())
     const reorder = new SidebarReorder(zone)
     reorder.attach()
-    return () => { reorder.detach() }
+    return () => { reorder.detach(); zone.detach() }
   }, 'ui-responsive: sidebar long-press reorder')
 
   // FX1-C (2026-09-27, user): the sidebar 插件 row switches the centre column to

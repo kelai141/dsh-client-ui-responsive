@@ -92,44 +92,90 @@ export function subagentAside(row: HTMLElement): HTMLButtonElement | null {
 
 export class ConversationDropZone {
   private zone: HTMLDivElement | undefined
+  private readonly leaving = new Map<HTMLDivElement, number>()
   constructor(private readonly open: (id: string) => void, private readonly current: () => string | undefined = () => undefined) {}
   accepts = (row: HTMLElement): boolean => row.matches('[data-row-key^="session:"]') || subagentAside(row) !== null || (row.matches('[role=treeitem][aria-current=true]') && this.current() !== undefined)
   preview = (active: boolean, over: boolean): void => {
-    if (!active) { this.zone?.remove(); this.zone = undefined; return }
+    if (!active) {
+      const old = this.zone
+      this.zone = undefined
+      if (old) {
+        old.setAttribute('data-leaving', '')
+        const timer = window.setTimeout(() => { old.remove(); this.leaving.delete(old) }, window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 160)
+        this.leaving.set(old, timer)
+      }
+      return
+    }
     if (!this.zone) {
+      this.clearLeaving()
       this.zone = document.createElement('div')
       this.zone.className = 'dsh-conversation-drop-zone'
       this.zone.setAttribute('role', 'status')
-      this.zone.textContent = '拖到此处侧开对话'
+      this.zone.textContent = '拖入侧开'
       document.body.append(this.zone)
     }
     this.zone.toggleAttribute('data-over', over)
+    const label = over ? '松开侧开' : '拖入侧开'
+    if (this.zone.textContent !== label) this.zone.textContent = label
+  }
+  detach(): void {
+    this.zone?.remove()
+    this.zone = undefined
+    this.clearLeaving()
+  }
+  private clearLeaving(): void {
+    for (const [node, timer] of this.leaving) { window.clearTimeout(timer); node.remove() }
+    this.leaving.clear()
   }
   drop = (row: HTMLElement): void => {
     if (!row.isConnected) return
-    const id = row.getAttribute('data-row-key')?.slice('session:'.length)
-    if (id) this.open(id)
+    this.capture(row)()
+  }
+  capture = (row: HTMLElement): (() => void) => {
+    const key = row.getAttribute('data-row-key')
+    const id = key?.startsWith('session:') ? key.slice('session:'.length) : undefined
+    if (id) return () => this.open(id)
     else {
       const button = subagentAside(row)
-      if (button) button.click()
+      if (button) return () => button.click()
       else if (row.matches('[aria-current=true]')) {
         const current = this.current()
-        if (current) this.open(current)
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        return () => {
+          if (current) this.open(current)
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        }
       }
     }
+    return () => {}
   }
 }
 export const CONVERSATION_DOCK_CSS = `
 .dsh-conversation-drop-zone {
   position: fixed; z-index: 2147483000; inset: max(12px, env(safe-area-inset-top)) 0 max(12px, env(safe-area-inset-bottom)) auto;
-  width: 48px; box-sizing: border-box; border: 1px solid var(--dsw-alias-interactive-border-active, #75a7ff);
-  border-radius: 8px 0 0 8px; background: color-mix(in srgb, var(--dsw-alias-brand-primary-new-colorprimary-new-color, #75a7ff) 22%, transparent);
-  color: var(--dsw-alias-text-primary, #a8c9ff); writing-mode: vertical-rl;
+  width: 48px; box-sizing: border-box; border: 1px solid rgba(135,185,255,.5);
+  border-radius: 8px 0 0 8px; background: rgba(103,160,255,.14);
+  -webkit-backdrop-filter: blur(18px) saturate(135%); backdrop-filter: blur(18px) saturate(135%);
+  box-shadow: -8px 0 28px rgba(94,158,255,.18), inset 1px 0 12px rgba(180,215,255,.12);
+  color: var(--dsw-alias-text-primary, #b8d5ff); text-shadow: 0 0 10px rgba(117,167,255,.3); writing-mode: vertical-rl;
   display: flex; align-items: center; justify-content: center; font-size: 12px;
-  pointer-events: none; transition: width 160ms ease, background 160ms ease;
+  pointer-events: none; animation: dsh-dock-arrive 180ms ease-out both;
+  transition: width 160ms ease, background 160ms ease, box-shadow 160ms ease, opacity 160ms ease, transform 160ms ease;
 }
-.dsh-conversation-drop-zone[data-over] { width: 56px; background: color-mix(in srgb, #75a7ff 45%, transparent); }
+.dsh-conversation-drop-zone[data-over] { width: 56px; background: rgba(103,160,255,.26);
+  box-shadow: -10px 0 38px rgba(94,158,255,.35), inset 1px 0 16px rgba(205,228,255,.2); }
+.dsh-conversation-drop-zone[data-leaving] { animation: none; opacity: 0; transform: translateX(14px); }
+@keyframes dsh-dock-arrive { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: translateX(0); } }
+/* Frost lives only in the edge, never on the reading or composing surface. */
+[data-sidebar-right-panel][data-sidebar-right-open]::after {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 6px; z-index: 45;
+  pointer-events: none; border-left: 1px solid rgba(117,167,255,.26);
+  background: rgba(117,167,255,.045);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  box-shadow: -5px 0 20px rgba(94,158,255,.12), inset 1px 0 7px rgba(176,212,255,.1);
+}
+[data-sidebar-right-open] [data-dockkit-divider]::before {
+  background: rgba(117,167,255,.24); box-shadow: 0 0 12px rgba(94,158,255,.16);
+}
 html[data-dsh-sidebar-reorder] [role=treeitem] { user-select: none; -webkit-user-select: none; }
 /* Portrait preserves the dock tree and native tab actions. Only the active
    pane body occupies the full second row; both groups of tabs remain reachable. */
@@ -147,5 +193,5 @@ html[data-dsh-sidebar-reorder] [role=treeitem] { user-select: none; -webkit-user
   [data-sidebar-right-panel] [data-dockkit-split] section:not([data-dockkit-pane-active]) > [class*='tabHostBody'],
   [data-sidebar-right-panel] [data-dockkit-split] > [data-dockkit-divider] { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { .dsh-conversation-drop-zone { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .dsh-conversation-drop-zone { transition: none; animation: none; } }
 `

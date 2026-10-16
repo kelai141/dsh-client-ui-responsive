@@ -27,7 +27,7 @@ beforeEach(() => {
   Object.defineProperty(document, 'elementFromPoint', { value: () => document.body, configurable: true })
   drag.attach()
 })
-afterEach(() => { drag.detach(); zone.preview(false, false); document.body.innerHTML = ''; vi.useRealTimers() })
+afterEach(() => { drag.detach(); zone.detach(); document.body.innerHTML = ''; vi.useRealTimers() })
 describe('conversation docking', () => {
   it('keeps resource identities unambiguous', () => {
     expect(conversationId(conversationAddress('a/b?中文'))).toBe('a/b?中文')
@@ -37,7 +37,7 @@ describe('conversation docking', () => {
   it('opens once after settling reorder and removes the target (also in landscape)', () => {
     const source = row()
     const events: string[] = []
-    source.addEventListener('drop', () => events.push('cancel-order'))
+    source.addEventListener('drop', () => { events.push('cancel-order'); source.remove() })
     open.mockImplementation(() => { expect(document.documentElement.hasAttribute(REORDER_ATTR)).toBe(false); events.push('open') })
     touch('touchstart', source, 80); vi.advanceTimersByTime(400)
     expect(document.querySelector('.dsh-conversation-drop-zone')).not.toBeNull()
@@ -47,7 +47,7 @@ describe('conversation docking', () => {
     expect(open).toHaveBeenCalledTimes(1)
     expect(open).toHaveBeenCalledWith('session/a')
     expect(events).toEqual(['cancel-order', 'open'])
-    expect(document.querySelector('.dsh-conversation-drop-zone')).toBeNull()
+    expect(document.querySelector('.dsh-conversation-drop-zone:not([data-leaving])')).toBeNull()
   })
   it('uses the subagent row action without navigating the main conversation', () => {
     const source = row(true)
@@ -59,6 +59,30 @@ describe('conversation docking', () => {
     touch('touchend', source, innerWidth - 8)
     expect(aside).toHaveBeenCalledTimes(1); expect(main).not.toHaveBeenCalled(); expect(open).not.toHaveBeenCalled()
   })
+  it('ignores title marquee scroll but cancels real ancestor scrolling', () => {
+    const source = row(); const title = document.createElement('span'); source.append(title)
+    touch('touchstart', title, 80); title.dispatchEvent(new Event('scroll'))
+    vi.advanceTimersByTime(400)
+    expect(document.documentElement.hasAttribute(REORDER_ATTR)).toBe(true)
+    touch('touchend', source, innerWidth - 8)
+    expect(open).toHaveBeenCalledTimes(1)
+    touch('touchstart', source, 80); document.body.dispatchEvent(new Event('scroll'))
+    vi.advanceTimersByTime(400)
+    expect(document.documentElement.hasAttribute(REORDER_ATTR)).toBe(false)
+  })
+  it('does not claim workspace rows even though they are draggable treeitems', () => {
+    const source = row(true); source.dataset.rowKey = 'workspace:project'; source.draggable = true; source.innerHTML = '项目'
+    touch('touchstart', source, 80); vi.advanceTimersByTime(400)
+    expect(document.documentElement.hasAttribute(REORDER_ATTR)).toBe(false)
+    touch('touchend', source, innerWidth - 8)
+    expect(open).not.toHaveBeenCalled()
+  })
+  it('does not open a source removed while dragging', () => {
+    const source = row(); touch('touchstart', source, 80); vi.advanceTimersByTime(400)
+    source.remove(); touch('touchend', document.body, innerWidth - 8)
+    expect(open).not.toHaveBeenCalled()
+    expect(document.documentElement.hasAttribute(REORDER_ATTR)).toBe(false)
+  })
   it.each(['touchcancel', 'multitouch', 'outside', 'detach'])('cancels %s without opening', mode => {
     const source = row()
     touch('touchstart', source, 80); vi.advanceTimersByTime(400)
@@ -67,6 +91,6 @@ describe('conversation docking', () => {
     else touch(mode === 'outside' ? 'touchend' : 'touchcancel', source, 10)
     expect(open).not.toHaveBeenCalled()
     expect(document.documentElement.hasAttribute(REORDER_ATTR)).toBe(false)
-    expect(document.querySelector('.dsh-conversation-drop-zone')).toBeNull()
+    expect(document.querySelector('.dsh-conversation-drop-zone:not([data-leaving])')).toBeNull()
   })
 })
