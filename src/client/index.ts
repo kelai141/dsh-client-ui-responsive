@@ -48,7 +48,6 @@ import { openSessionForNotify, type SessionOpenFace } from './mobile/notify-land
 import { DevSection } from './dev-section/DevSection.tsx'
 import { PhoneControlSection } from './dev-section/phone-control.tsx'
 import { NotifySettingsSection } from './dev-section/notify-settings.tsx'
-import { ModelCapabilitySection } from './dev-section/model-capability.tsx'
 import { DEV_SECTION_CSS } from './dev-section/dev-section.css.ts'
 import { GeneralSettings } from './general-settings/GeneralSettings.tsx'
 import { ThemeBridge } from './theme-bridge.ts'
@@ -66,7 +65,7 @@ import { TopBarFold } from './mobile/top-bar-fold.ts'
 import { TOP_BAR_FOLD_CSS } from './mobile/top-bar-fold.css.ts'
 import { NewSessionDrawer } from './mobile/new-session-drawer.ts'
 import { SidebarSessionDismiss } from './mobile/sidebar-session-dismiss.ts'
-import { registerConversationDock, ConversationDropZone, conversationAddress, resolveDockSubagent, CONVERSATION_DOCK_CSS } from './mobile/conversation-dock.tsx'
+import { registerConversationDock, ConversationDropZone, conversationAddress, existingConversation, retainDockIdentity, resolveDockSubagent, CONVERSATION_DOCK_CSS } from './mobile/conversation-dock.tsx'
 import { SidebarReorder } from './mobile/sidebar-reorder.ts'
 import { SIDEBAR_REORDER_CSS } from './mobile/sidebar-reorder.css.ts'
 import { EXTERNAL_OPEN_ID, externalOpenDefinition } from './mobile/external-open-paths.ts'
@@ -74,6 +73,8 @@ import { ExternalOpenTab } from './mobile/external-open.tsx'
 import { SettingsDocumentAction } from './mobile/settings-document.ts'
 import { ReferenceMenuEnhancer, REFERENCE_BAR_CSS } from './mobile/reference-menu.ts'
 import { BackStackSignal } from './mobile/back-stack.ts'
+import { MobileWorkspaces, retainWorkspaceTypes } from './mobile/mobile-workspaces.ts'
+import { MOBILE_WORKSPACES_CSS } from './mobile/mobile-workspaces.css.ts'
 import { SidebarBubbles, type BubbleReorderFace } from './mobile/sidebar-bubbles.ts'
 import { SIDEBAR_BUBBLES_CSS } from './mobile/sidebar-bubbles.css.ts'
 import { zh as bubblesZh, en as bubblesEn } from './mobile/sidebar-bubbles.locales.ts'
@@ -155,6 +156,7 @@ function injectStyle(id: string, css: string): () => void {
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  let mobileWorkspaces: MobileWorkspaces | undefined
   // SnapshotPanel is owned by the header actions seat, so promote that header only while it is open.
   ctx.effect(() => injectStyle('snapshot-panels', SNAPSHOT_PANELS_CSS), 'ui-responsive: snapshot panel paint')
   ctx.effect(() => {
@@ -311,16 +313,6 @@ export function apply(ctx: ClientContext): void {
     label: () => '手机控制',
   }, PhoneControlSection))
 
-  // 模型能力（0.14.8 提级）：补齐非内置提供商模型的思考档位等能力。
-  // 此前唯一入口埋在开发者选项里（用户 2026-10-15 反馈「设置页里没有」）——提级为一级分区。
-  // 与通知设置同形：能力在、入口无。手动触发，不轮询（用户明确要求）。
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section',
-    id: 'android-model-capability',
-    order: 96,
-    label: () => '模型能力',
-  }, ModelCapabilitySection))
-
   // Linux 环境（实验性内部插件）**不由本文件注册**：该分区的唯一注册方是 vendored 的
   // dsh-linux-bootstrap 客户端插件（plugins/dsh-linux-bootstrap 的 client 条目，id 同为
   // linux-environment、label 同为「Linux环境」）。dsh-client-ui-slots 对 list 槽的重复 id 是
@@ -470,14 +462,21 @@ export function apply(ctx: ClientContext): void {
     return () => { marker.detach() }
   }, 'ui-responsive: session id marker for tool-row file links')
 
-  ctx.inject(['locale', 'sidebarRight'], scope => {
+  ctx.inject(['locale', 'sidebarRight', 'sidebarRightTabs'], scope => {
+    scope.effect(() => retainDockIdentity(scope.sidebarRight), 'ui-responsive: stable child identity across docking entries')
+    scope.effect(() => retainWorkspaceTypes(scope.sidebarRightTabs), 'ui-responsive: retain compatible workspace views')
     const namespace = 'androidSidebarBubbles'
     const t = scope.locale.bind(namespace)
     scope.effect(() => scope.locale.register(namespace, { zh: bubblesZh, en: bubblesEn }), 'ui-responsive: bubble navigation copy')
+    scope.effect(() => injectStyle('mobile-workspaces', MOBILE_WORKSPACES_CSS), 'ui-responsive: stable mobile workspace layout')
     scope.effect(() => injectStyle('sidebar-bubbles', SIDEBAR_BUBBLES_CSS), 'ui-responsive: bubble navigation styles')
     scope.effect(() => {
       const sidebar = scope.sidebarRight as typeof scope.sidebarRight & BubbleReorderFace
+      const workspaces = new MobileWorkspaces(sidebar, fullscreen => { scope.layout.openRightbar(false, fullscreen) })
+      mobileWorkspaces = workspaces
+      workspaces.attach()
       const bubbles = new SidebarBubbles({
+        workspaces,
         session: () => sidebar.mounted.getSnapshot(),
         tabs: session => sidebar.tabsIn(session),
         reorder: (session, tab, before) => sidebar.reorderIn(session, tab, before),
@@ -486,7 +485,7 @@ export function apply(ctx: ClientContext): void {
       bubbles.attach()
       const unsubscribe = sidebar.mounted.subscribe(bubbles.refresh)
       const unlocale = scope.on('locale/change', bubbles.refresh)
-      return () => { unsubscribe(); unlocale(); bubbles.detach() }
+      return () => { unsubscribe(); unlocale(); bubbles.detach(); workspaces.detach(); if (mobileWorkspaces === workspaces) mobileWorkspaces = undefined }
     }, 'ui-responsive: narrow right-panel bubble navigation')
   })
 
@@ -716,9 +715,12 @@ export function apply(ctx: ClientContext): void {
       const open = () => {
         pendingFrame = 0
         if (owner === undefined || scope.sidebarRight.mounted.getSnapshot() !== owner) return
-        scope.sidebarRight.openResource(conversationAddress(id), {
-          kind: 'conversation', preferNewPane: window.matchMedia('(orientation: landscape)').matches && scope.sidebarRight.active()?.kind !== 'guide',
-        })
+        const existing = existingConversation(scope.sidebarRight.tabsIn(owner), id)
+        if (existing) {
+          if (!mobileWorkspaces?.single(existing as Parameters<MobileWorkspaces['single']>[0])) scope.sidebarRight.focus(existing as Parameters<typeof scope.sidebarRight.focus>[0])
+        } else {
+          scope.sidebarRight.openResource(conversationAddress(id), { kind: 'conversation' })
+        }
       }
       const frame = document.querySelector('[data-dsh-frame]')
       if (window.innerWidth < 1100 && frame && !frame.hasAttribute('data-sidebar-collapsed')) {

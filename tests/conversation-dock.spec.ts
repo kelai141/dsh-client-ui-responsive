@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest'
 import { SidebarReorder, REORDER_ATTR } from '../src/client/mobile/sidebar-reorder.ts'
-import { ConversationDropZone, conversationAddress, conversationId, conversationTarget, resolveDockSubagent, registerConversationDock } from '../src/client/mobile/conversation-dock.tsx'
+import { ConversationDropZone, conversationAddress, conversationId, conversationTarget, existingConversation, resolveDockSubagent, registerConversationDock } from '../src/client/mobile/conversation-dock.tsx'
 
 function touch(type: string, target: HTMLElement, x: number, y = 100, multiple = false) {
   const e = new Event(type, { bubbles: true, cancelable: true })
@@ -160,5 +160,17 @@ describe('subagent identity resolution', () => {
   it('rejects malformed direct-parent routes', () => {
     expect(conversationTarget('dsh-resource://conversation/session/child?parent=p&mode=broken')).toBeUndefined()
     expect(conversationTarget('dsh-resource://conversation/session/child?parent=&mode=continuable')).toBeUndefined()
+  })
+})
+
+
+describe('stable child tab identity', () => {
+  it('locates the same live child across direct and catalog addresses without confusing two children', () => {
+    const child = { parentSessionId: 'parent', childSessionId: 'child', mode: 'continuable' as const }
+    const tabs = [{ id: 'child-tab', kind: 'conversation', contentId: conversationAddress(child) }]
+    expect(existingConversation(tabs, 'child')).toBe('child-tab')
+    expect(existingConversation(tabs, { ...child, mode: 'one-shot' })).toBe('child-tab')
+    expect(existingConversation(tabs, 'different-child')).toBeUndefined()
+    expect(existingConversation([{ ...tabs[0], kind: 'browser' }], 'child')).toBeUndefined()
   })
 })

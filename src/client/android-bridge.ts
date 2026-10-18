@@ -17,6 +17,16 @@ export interface OpenPathResult {
 export interface AndroidShellBridge {
   /** H1: sync system-dark query (fallback for vendor WebViews whose matchMedia is stuck on light). */
   getSystemDark?: () => boolean
+  /**
+   * Linux 环境资产准备（实验性内部插件，默认不启用）。
+   *
+   * 请求体只有资产清单 `{url, sha256, size}`；落点由壳侧按摘要自行推导，页面无法指定目标路径。
+   * 除非 Linux 环境在场（根目录 + bootstrap 状态文件）一律拒绝，故它不是通用下载器。
+   * 立即返回 `{ok, phase}`，结果用 `linuxAssetPrepareStatus()` 轮询（下载不得阻塞页面线程）。
+   */
+  linuxAssetPrepare?: (specJson: string) => string
+  /** 读取上一次准备的阶段与失败原因（`phase`/`code`/`detail`/`stagedPath`）。 */
+  linuxAssetPrepareStatus?: () => string
   /** Restart the engine service process (kill + watchdog relaunch). */
   /**
    * 重启引擎；返回是否**真的发起了**（false = 已在重启中或上下文缺失）。
